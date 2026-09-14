@@ -932,7 +932,6 @@ async function renderAnalyticsTab() {
     <div class="stat-card"><div class="sval">${a.openDeals}</div><div class="slabel">Open deals</div></div>
     <div class="stat-card"><div class="sval">${a.wonThisMonth}</div><div class="slabel">Won this month</div></div>
     <div class="stat-card"><div class="sval">${a.winRate}%</div><div class="slabel">Win rate</div></div>
-    <div class="stat-card"><div class="sval">${a.emailOpenRate}%</div><div class="slabel">Email open rate (${a.emailsSent} sent)</div></div>
   `;
 
   $('#stage-chart').innerHTML = barChartSvg(

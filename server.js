@@ -414,10 +414,6 @@ app.get('/api/analytics', async (req, res) => {
     count: activities.filter((a) => a.type === 'call' && a.at.slice(0, 10) === day).length,
   }));
 
-  const emailActivities = activities.filter((a) => a.type === 'email');
-  const opened = emailActivities.filter((a) => a.meta?.opened_at);
-  const emailOpenRate = emailActivities.length ? Math.round((opened.length / emailActivities.length) * 100) : 0;
-
   res.json({
     totalContacts: (await listContacts()).length,
     openDeals: deals.filter((d) => !['won', 'lost'].includes(d.stage)).length,
@@ -425,8 +421,6 @@ app.get('/api/analytics', async (req, res) => {
     winRate,
     dealsByStage,
     callsPerDay,
-    emailsSent: emailActivities.length,
-    emailOpenRate,
   });
 });
 
