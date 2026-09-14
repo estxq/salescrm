@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 // reach the error-handling middleware below instead.
 import 'express-async-errors';
 
-import { listUsers, createUser } from './lib/users.js';
+import { listUsers, createUser, updateUser } from './lib/users.js';
 import { listContacts, getContact, findContactByPhone, createContact, updateContact, deleteContact } from './lib/contacts.js';
 import {
   STAGES,
@@ -88,6 +88,11 @@ app.post('/api/users', async (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+app.patch('/api/users/:id', async (req, res) => {
+  const user = await updateUser(req.params.id, req.body || {});
+  if (!user) return res.status(404).json({ error: 'not found' });
+  res.json(user);
 });
 
 // ---------- Leads (Google Sheet) ----------
@@ -282,7 +287,7 @@ app.post('/api/zoom-meetings/:meetingId/request-reschedule', async (req, res) =>
     contact_id: null,
     message: `${requested_by || 'Someone'} asked to reschedule "${
       topic || 'a Zoom meeting'
-    }" (${when}): "${remark}" — this is a personal Zoom meeting, so it needs to be moved directly in Zoom.`,
+    }" (${when}): "${remark}" — please move it directly in Zoom.`,
   });
   res.json({ ok: true });
 });
