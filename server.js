@@ -19,6 +19,7 @@ import {
   getNextMeeting,
   createDeal,
   moveStage,
+  proposeTime,
   scheduleMeeting,
   rescheduleMeeting,
   requestReschedule,
@@ -214,6 +215,26 @@ app.post('/api/deals/:id/stage', async (req, res) => {
   const deal = await moveStage(req.params.id, req.body || {});
   if (!deal) return res.status(404).json({ error: 'invalid deal or stage' });
   if (deal.stage === 'lost') await cleanupZoomMeeting(before);
+  res.json(deal);
+});
+
+// The caller records the time the client agreed to on the call — no Zoom
+// meeting gets created here, this just hands it off to the PA to confirm
+// and actually book (see /schedule below, which clears this once it does).
+app.post('/api/deals/:id/propose-time', async (req, res) => {
+  const { proposed_at, proposed_by } = req.body;
+  if (!proposed_at) return res.status(400).json({ error: 'proposed_at required' });
+  const deal = await proposeTime(req.params.id, { proposed_at, proposed_by });
+  if (!deal) return res.status(404).json({ error: 'not found' });
+  const contact = await getContact(deal.contact_id);
+  await createNotification({
+    type: 'time_proposed',
+    deal_id: deal.id,
+    contact_id: deal.contact_id,
+    message: `${proposed_by || 'Caller'} proposed ${new Date(proposed_at).toLocaleString()} for a meeting with ${
+      contact?.name || 'a client'
+    } — PA to confirm and create the Zoom link.`,
+  });
   res.json(deal);
 });
 

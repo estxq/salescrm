@@ -40,6 +40,14 @@ function fmtWhen(iso) {
   });
 }
 
+// <input type="datetime-local"> wants "YYYY-MM-DDTHH:mm" in local time, not
+// an ISO string — used to prefill the picker with a caller-proposed time.
+function toLocalDatetimeValue(iso) {
+  const d = new Date(iso);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 // The team confirms meetings over WhatsApp, not email — this builds a
 // click-to-chat link (wa.me) prefilled with a confirmation message so
 // whoever's calling the client can send it in one tap instead of typing
@@ -775,6 +783,7 @@ function dealCard(deal) {
     <div class="dwhen">${deal.stage === 'meeting_booked' ? fmtWhen(deal.scheduled_at) : ''}</div>
     ${deal.last_call_outcome ? `<div class="badge-call">📞 ${CALL_OUTCOME_LABELS[deal.last_call_outcome] || deal.last_call_outcome}</div>` : ''}
     ${deal.reschedule_requested ? '<div class="badge-warning">⚠ reschedule requested</div>' : ''}
+    ${deal.proposed_at && deal.stage !== 'meeting_booked' ? `<div class="badge-info">⏰ time proposed: ${fmtWhen(deal.proposed_at)}</div>` : ''}
   `;
   card.addEventListener('dragstart', (e) => {
     e.dataTransfer.setData('text/plain', deal.id);
@@ -824,6 +833,7 @@ async function openDealModal(id) {
   // way to flag a reschedule, and leave calling/scheduling/emailing to
   // whoever's role actually owns those (caller/PA).
   const isAgent = currentRole === 'agent';
+  const isCaller = currentRole === 'caller';
 
   const body = `
     <h2>${contact.name || ''}</h2>
@@ -884,11 +894,31 @@ async function openDealModal(id) {
     }
 
     ${
+      deal.proposed_at && deal.stage !== 'meeting_booked'
+        ? `<div class="banner-info">
+            <strong>Time proposed</strong> by ${deal.proposed_by || 'Caller'}: ${fmtWhen(deal.proposed_at)}${
+            isCaller ? ' — waiting for PA to confirm and create the Zoom link.' : ' — confirm below to create the Zoom link.'
+          }
+          </div>`
+        : ''
+    }
+
+    ${
       isAgent
         ? ''
+        : isCaller
+        ? deal.stage === 'meeting_booked'
+          ? ''
+          : `<div class="section-head"><h2>Propose meeting time</h2><span class="hint">PA reviews this and creates the Zoom link</span></div>
+    <div class="mactions">
+      <input id="m-propose-time" type="datetime-local" value="${deal.proposed_at ? toLocalDatetimeValue(deal.proposed_at) : ''}" />
+      <button id="m-propose-save" class="primary">${deal.proposed_at ? 'Update proposed time' : 'Propose'}</button>
+    </div>`
         : `<div class="section-head"><h2>${deal.stage === 'meeting_booked' ? 'Reschedule' : 'Schedule meeting'}</h2></div>
     <div class="mactions">
-      <input id="m-time" type="datetime-local" />
+      <input id="m-time" type="datetime-local" value="${
+        deal.proposed_at && deal.stage !== 'meeting_booked' ? toLocalDatetimeValue(deal.proposed_at) : ''
+      }" />
       ${ZOOM_STATUS.connected ? '' : `<input id="m-zoom" placeholder="Zoom link" value="${deal.zoom_link || ''}" />`}
       <button id="m-schedule" class="primary">${deal.stage === 'meeting_booked' ? 'Reschedule' : 'Schedule'}</button>
     </div>
@@ -1013,6 +1043,18 @@ async function openDealModal(id) {
       const payload = { scheduled_at: new Date(time).toISOString(), changed_by: currentUser() };
       if (zoomLink) payload.zoom_link = zoomLink;
       await api(`/api/deals/${id}/${endpoint}`, { method: 'POST', body: JSON.stringify(payload) });
+      closeModal(); refresh();
+    });
+  }
+
+  if ($('#m-propose-save')) {
+    $('#m-propose-save').addEventListener('click', async () => {
+      const time = $('#m-propose-time').value;
+      if (!time) return alert('Pick a time.');
+      await api(`/api/deals/${id}/propose-time`, {
+        method: 'POST',
+        body: JSON.stringify({ proposed_at: new Date(time).toISOString(), proposed_by: currentUser() }),
+      });
       closeModal(); refresh();
     });
   }
