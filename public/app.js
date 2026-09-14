@@ -553,7 +553,7 @@ async function openDealModal(id) {
 
   const body = `
     <h2>#${deal.id} ${contact.name || ''}</h2>
-    <div class="mnotes">${contact.phone || ''} ${contact.email ? '· ' + contact.email : ''} ${contact.company ? '· ' + contact.company : ''}</div>
+    <div class="mnotes">${contact.phone || ''} ${contact.email ? '· ' + contact.email : ''}</div>
     <div class="mnotes">${contact.notes || ''}</div>
     ${deal.last_call_outcome ? `<div class="badge-call" style="margin-top:6px">📞 Last call: ${CALL_OUTCOME_LABELS[deal.last_call_outcome] || deal.last_call_outcome}</div>` : ''}
 
@@ -783,7 +783,7 @@ async function renderContactsTab(q) {
     const card = document.createElement('div');
     card.className = 'card';
     card.innerHTML = `
-      <strong>${c.name}</strong> ${c.company ? `— ${c.company}` : ''}
+      <strong>${c.name}</strong>
       <div class="mnotes">${[c.phone, c.email].filter(Boolean).join(' · ') || '<em>no phone/email on file</em>'}</div>
       <div class="mnotes">${c.notes || ''}</div>
     `;
@@ -798,7 +798,6 @@ async function renderContactsTab(q) {
       form.innerHTML = `
         <input class="ie-phone" placeholder="Phone" value="${c.phone || ''}" />
         <input class="ie-email" placeholder="Email" value="${c.email || ''}" />
-        <input class="ie-company" placeholder="Company" value="${c.company || ''}" />
         <button class="ie-save primary">Save</button>
         <button class="ie-cancel">Cancel</button>
       `;
@@ -814,7 +813,6 @@ async function renderContactsTab(q) {
           body: JSON.stringify({
             phone: form.querySelector('.ie-phone').value,
             email: form.querySelector('.ie-email').value,
-            company: form.querySelector('.ie-company').value,
           }),
         });
         inlineFormClosed();
@@ -838,7 +836,6 @@ $('#contact-form').addEventListener('submit', async (e) => {
       name: form.name.value,
       phone: form.phone.value,
       email: form.email.value,
-      company: form.company.value,
       notes: form.notes.value,
       created_by: currentUser(),
     }),
