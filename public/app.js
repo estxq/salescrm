@@ -354,24 +354,30 @@ function openCalendarMeeting(meeting) {
 
 async function renderCalendarUpcoming() {
   const el = $('#calendar-upcoming-list');
+  const heading = $('#calendar-upcoming-heading');
   await withRetry(el, async () => {
-    const upcoming = (await api('/api/meetings?when=upcoming')).slice(0, 5);
-    if (!upcoming.length) {
+    const all = await api('/api/meetings?when=upcoming');
+    if (!all.length) {
+      heading.textContent = 'Upcoming';
       el.innerHTML = '<div class="empty">Nothing coming up.</div>';
       return;
     }
+    // Just the nearest upcoming date's meetings — one meeting there shows
+    // one, two shows two, rather than padding out to a fixed count.
+    const nearestDay = new Date(all[0].scheduled_at).toDateString();
+    const upcoming = all.filter((m) => new Date(m.scheduled_at).toDateString() === nearestDay);
+    heading.textContent = `Upcoming — ${new Date(all[0].scheduled_at).toLocaleDateString(undefined, {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+    })}`;
     el.innerHTML = upcoming
       .map((m) => {
         const isZoomOnly = m.source === 'zoom';
         const name = isZoomOnly ? m.title : m.contact?.name ? `Call with ${m.contact.name}` : 'Meeting';
-        const when = `${new Date(m.scheduled_at).toLocaleDateString(undefined, {
-          weekday: 'short',
-          month: 'short',
-          day: 'numeric',
-        })} · ${fmtTime(m.scheduled_at)}`;
         return `
         <div class="upcoming-item" data-idx="${upcoming.indexOf(m)}">
-          <span class="u-when">${when}</span>
+          <span class="u-when">${fmtTime(m.scheduled_at)}</span>
           <span class="u-name">${name}</span>
           ${m.zoom_link ? `<a href="${m.zoom_link}" target="_blank" rel="noopener" class="u-join">Join</a>` : ''}
         </div>`;
