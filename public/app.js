@@ -338,6 +338,8 @@ function fmtDateOnly(iso) {
 async function renderMeetingsTab() {
   const deals = await api(`/api/meetings?when=${meetingsWhen}`);
   if (!meetingsSortAsc) deals.reverse();
+  const hasZoomOnly = deals.some((d) => d.source === 'zoom');
+  if (hasZoomOnly) await ensureFollowupOutcomes();
   const body = $('#meetings-body');
   if (!deals.length) {
     body.innerHTML = '<div class="empty" style="padding:16px">No meetings here.</div>';
@@ -358,7 +360,12 @@ async function renderMeetingsTab() {
         <div class="mt-date"><div>${fmtDateOnly(d.scheduled_at)}</div><div class="mt-time">${fmtTime(d.scheduled_at)}</div></div>
         <div class="mt-attendee">${isZoomOnly ? '' : avatarHtml(d.contact?.name)}</div>
         <div class="mt-owner">${isZoomOnly ? '<span class="hint">Zoom</span>' : avatarHtml(d.owner)}</div>
-        <div class="mt-actions">${isZoomOnly ? '' : `<button class="resched-btn" data-id="${d.id}">Reschedule</button>`}</div>
+        <div class="mt-actions">${
+          isZoomOnly
+            ? `<button class="zoom-resched-request-btn" data-id="${d.id}">Request reschedule</button>
+               <button class="zoom-outcome-btn" data-id="${d.id}">Log outcome</button>`
+            : `<button class="resched-btn" data-id="${d.id}">Reschedule</button>`
+        }</div>
       </div>`;
     })
     .join('');
@@ -367,6 +374,91 @@ async function renderMeetingsTab() {
       if (row.dataset.zoomOnly) return; // no linked deal to open
       if (e.target.closest('.join-btn') || e.target.closest('.resched-btn') || e.target.closest('.inline-resched')) return;
       openDealModal(row.dataset.id);
+    });
+  });
+  // Zoom-only meetings (booked directly in Zoom, not via the CRM pipeline)
+  // have no deal to attach state to — both actions just raise a
+  // notification instead of changing anything server-side for the meeting.
+  $$('#meetings-body .zoom-resched-request-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const row = btn.closest('.meetings-row');
+      if (row.querySelector('.inline-zoom-action')) return;
+      const meeting = deals.find((d) => String(d.id) === btn.dataset.id);
+      const form = document.createElement('div');
+      form.className = 'inline-zoom-action';
+      form.innerHTML = `
+        <input type="text" class="iza-remark" placeholder="Reason (e.g. running late, need to push)" style="flex:1" />
+        <button class="iza-save primary">Send</button>
+        <button class="iza-cancel">Cancel</button>
+      `;
+      row.appendChild(form);
+      inlineFormOpened();
+      form.querySelector('.iza-cancel').addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        inlineFormClosed();
+        form.remove();
+      });
+      form.querySelector('.iza-save').addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        const remark = form.querySelector('.iza-remark').value.trim();
+        if (!remark) return;
+        const zoomId = btn.dataset.id.replace('zoom-', '');
+        await api(`/api/zoom-meetings/${zoomId}/request-reschedule`, {
+          method: 'POST',
+          body: JSON.stringify({
+            remark,
+            requested_by: currentUser(),
+            topic: meeting?.title,
+            scheduled_at: meeting?.scheduled_at,
+          }),
+        });
+        inlineFormClosed();
+        form.remove();
+        alert('Sent — whoever manages the calendar will see it in notifications.');
+      });
+    });
+  });
+  $$('#meetings-body .zoom-outcome-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const row = btn.closest('.meetings-row');
+      if (row.querySelector('.inline-zoom-action')) return;
+      const meeting = deals.find((d) => String(d.id) === btn.dataset.id);
+      const form = document.createElement('div');
+      form.className = 'inline-zoom-action';
+      form.innerHTML = `
+        <select class="iza-outcome">${FOLLOWUP_OUTCOMES_CACHE.map((o) => `<option value="${o.key}">${o.label}</option>`).join('')}</select>
+        <input type="text" class="iza-note" placeholder="Notes (optional)" style="flex:1" />
+        <button class="iza-save primary">Save</button>
+        <button class="iza-cancel">Cancel</button>
+      `;
+      row.appendChild(form);
+      inlineFormOpened();
+      form.querySelector('.iza-cancel').addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        inlineFormClosed();
+        form.remove();
+      });
+      form.querySelector('.iza-save').addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        const outcome = form.querySelector('.iza-outcome').value;
+        const note = form.querySelector('.iza-note').value.trim();
+        const zoomId = btn.dataset.id.replace('zoom-', '');
+        await api(`/api/zoom-meetings/${zoomId}/outcome`, {
+          method: 'POST',
+          body: JSON.stringify({
+            outcome,
+            note,
+            made_by: currentUser(),
+            topic: meeting?.title,
+            scheduled_at: meeting?.scheduled_at,
+          }),
+        });
+        inlineFormClosed();
+        form.remove();
+        alert('Logged.');
+      });
     });
   });
   // A real <input type="datetime-local"> instead of window.prompt() — prompt()
@@ -494,11 +586,15 @@ function dealCard(deal) {
 }
 
 let FOLLOWUP_OUTCOMES_CACHE = [];
+async function ensureFollowupOutcomes() {
+  if (!FOLLOWUP_OUTCOMES_CACHE.length) FOLLOWUP_OUTCOMES_CACHE = await api('/api/followup-outcomes');
+  return FOLLOWUP_OUTCOMES_CACHE;
+}
 
 async function openDealModal(id) {
   const deal = await api(`/api/deals/${id}`);
   const templates = await api('/api/templates');
-  if (!FOLLOWUP_OUTCOMES_CACHE.length) FOLLOWUP_OUTCOMES_CACHE = await api('/api/followup-outcomes');
+  await ensureFollowupOutcomes();
   await loadZoomStatus();
   const contact = deal.contact || {};
 

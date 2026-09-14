@@ -417,7 +417,7 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 .meetings-table { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
 .meetings-row {
   display: grid;
-  grid-template-columns: 1fr 70px 130px 60px 60px 100px;
+  grid-template-columns: 1fr 70px 130px 60px 60px 130px;
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
@@ -425,16 +425,23 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
   font-size: 13px;
   cursor: pointer;
 }
-.mt-actions .resched-btn {
+.mt-actions { display: flex; flex-direction: column; gap: 4px; }
+.mt-actions .resched-btn,
+.mt-actions .zoom-resched-request-btn,
+.mt-actions .zoom-outcome-btn {
   font-size: 11px;
   padding: 4px 10px;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: white;
   cursor: pointer;
+  white-space: nowrap;
 }
-.mt-actions .resched-btn:hover { background: var(--bg); }
-.inline-resched {
+.mt-actions .resched-btn:hover,
+.mt-actions .zoom-resched-request-btn:hover,
+.mt-actions .zoom-outcome-btn:hover { background: var(--bg); }
+.inline-resched,
+.inline-zoom-action {
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
@@ -443,9 +450,13 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
   padding-top: 8px;
   border-top: 1px dashed var(--border);
 }
-.inline-resched input { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); }
-.inline-resched button { font-size: 12px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: white; cursor: pointer; }
-.inline-resched button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+.inline-resched input,
+.inline-zoom-action input,
+.inline-zoom-action select { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); }
+.inline-resched button,
+.inline-zoom-action button { font-size: 12px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: white; cursor: pointer; }
+.inline-resched button.primary,
+.inline-zoom-action button.primary { background: var(--accent); color: white; border-color: var(--accent); }
 .meetings-row:last-child { border-bottom: none; }
 .meetings-row:not(.meetings-head):hover { background: var(--bg); }
 .meetings-head {

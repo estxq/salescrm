@@ -33,7 +33,7 @@ import { listTemplates, getTemplate, createTemplate, updateTemplate, deleteTempl
 import { renderTemplate, newTrackingToken, sendEmail, TRACKING_PIXEL } from './lib/mailer.js';
 import { fetchLeads } from './lib/sheets.js';
 import { notifyScheduled, notifyRescheduleConfirmed, notifyRescheduleRequested } from './lib/notify.js';
-import { listNotifications, markRead, markAllRead, unreadCount, deleteNotificationsFor } from './lib/notifications.js';
+import { listNotifications, markRead, markAllRead, unreadCount, deleteNotificationsFor, createNotification } from './lib/notifications.js';
 import { buildIcs, googleCalendarLink } from './lib/calendar.js';
 import { checkAndSendReminders } from './lib/reminders.js';
 import * as zoom from './lib/zoom.js';
@@ -269,8 +269,44 @@ app.post('/api/deals/:id/request-reschedule', async (req, res) => {
   res.json(deal);
 });
 
+// Meetings booked directly in Zoom have no deal to attach a reschedule flag
+// to, so this just raises a notification for whoever manages the calendar —
+// they'll need to move it in Zoom itself, this app has no reach into it.
+app.post('/api/zoom-meetings/:meetingId/request-reschedule', async (req, res) => {
+  const { remark, requested_by, topic, scheduled_at } = req.body;
+  if (!remark) return res.status(400).json({ error: 'remark required' });
+  const when = scheduled_at ? new Date(scheduled_at).toLocaleString() : 'the scheduled time';
+  await createNotification({
+    type: 'reschedule_requested',
+    deal_id: null,
+    contact_id: null,
+    message: `${requested_by || 'Someone'} asked to reschedule "${
+      topic || 'a Zoom meeting'
+    }" (${when}): "${remark}" — this is a personal Zoom meeting, so it needs to be moved directly in Zoom.`,
+  });
+  res.json({ ok: true });
+});
+
 app.get('/api/followup-outcomes', (req, res) => {
   res.json(Object.entries(FOLLOWUP_OUTCOMES).map(([key, v]) => ({ key, label: v.label })));
+});
+
+// Same idea as a deal's meeting follow-up, but for a Zoom-only meeting with
+// no deal to update the stage on — this just records how it went.
+app.post('/api/zoom-meetings/:meetingId/outcome', async (req, res) => {
+  const { outcome, note, made_by, topic, scheduled_at } = req.body;
+  const config = FOLLOWUP_OUTCOMES[outcome];
+  if (!config) return res.status(400).json({ error: 'invalid outcome' });
+  const when = scheduled_at ? new Date(scheduled_at).toLocaleString() : 'the scheduled time';
+  await createNotification({
+    type: 'meeting_outcome',
+    deal_id: null,
+    contact_id: null,
+    message: `${made_by || 'Someone'} logged "${topic || 'a Zoom meeting'}" (${when}) as: ${config.label}${
+      note ? ` — ${note}` : ''
+    }.`,
+  });
+  res.json({ ok: true });
 });
 
 app.post('/api/deals/:id/followup', async (req, res) => {
