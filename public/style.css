@@ -400,9 +400,10 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 
 /* ---------- Month calendar (Agent's Summary view) ---------- */
 .calendar-col { grid-column: 1 / -1; }
-.calendar-nav-today {
+.schedule-nav button.calendar-nav-today {
+  width: auto; height: auto;
   font-size: 11px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border);
-  background: white; cursor: pointer; color: var(--muted);
+  background: white; cursor: pointer; color: var(--muted); white-space: nowrap;
 }
 .calendar-upcoming { margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
 .calendar-upcoming h4 { margin: 0 0 10px; font-size: 13px; }
