@@ -913,6 +913,17 @@ function lineChartSvg(items, { width = 480, height = 220, color = '#16a34a' } = 
   </svg>`;
 }
 
+// Short forms of the stage labels for the chart's x-axis, where full
+// phrases like "Scheduled a Meeting" would crowd narrow bars.
+const STAGE_CHART_LABELS = {
+  new: 'Potential',
+  contacted: 'Interested',
+  meeting_booked: 'Meeting',
+  proposal: 'Post-meeting',
+  won: 'Won',
+  lost: 'Not interested',
+};
+
 async function renderAnalyticsTab() {
   const a = await api('/api/analytics');
 
@@ -920,12 +931,13 @@ async function renderAnalyticsTab() {
     <div class="stat-card"><div class="sval">${a.totalContacts}</div><div class="slabel">Total contacts</div></div>
     <div class="stat-card"><div class="sval">${a.openDeals}</div><div class="slabel">Open deals</div></div>
     <div class="stat-card"><div class="sval">${a.wonThisMonth}</div><div class="slabel">Won this month</div></div>
-    <div class="stat-card"><div class="sval">$${a.revenueThisMonth}</div><div class="slabel">Revenue this month</div></div>
     <div class="stat-card"><div class="sval">${a.winRate}%</div><div class="slabel">Win rate</div></div>
     <div class="stat-card"><div class="sval">${a.emailOpenRate}%</div><div class="slabel">Email open rate (${a.emailsSent} sent)</div></div>
   `;
 
-  $('#stage-chart').innerHTML = barChartSvg(a.dealsByStage.map((s) => ({ label: s.label.split(' ')[0], value: s.count })));
+  $('#stage-chart').innerHTML = barChartSvg(
+    a.dealsByStage.map((s) => ({ label: STAGE_CHART_LABELS[s.stage] || s.label, value: s.count }))
+  );
   $('#calls-chart').innerHTML = lineChartSvg(a.callsPerDay.map((d) => ({ label: d.day.slice(5), value: d.count })));
 }
 

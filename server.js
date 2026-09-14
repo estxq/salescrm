@@ -402,7 +402,6 @@ app.get('/api/analytics', async (req, res) => {
     const u = new Date(d.updated_at);
     return u.getMonth() === now.getMonth() && u.getFullYear() === now.getFullYear();
   });
-  const revenueThisMonth = wonThisMonth.reduce((sum, d) => sum + (d.value || 0), 0);
 
   const days = [];
   for (let i = 13; i >= 0; i--) {
@@ -423,7 +422,6 @@ app.get('/api/analytics', async (req, res) => {
     totalContacts: (await listContacts()).length,
     openDeals: deals.filter((d) => !['won', 'lost'].includes(d.stage)).length,
     wonThisMonth: wonThisMonth.length,
-    revenueThisMonth,
     winRate,
     dealsByStage,
     callsPerDay,
