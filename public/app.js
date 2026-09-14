@@ -83,6 +83,18 @@ function applyRoleVisibility(role) {
   $$('.add-contact-control').forEach((el) => {
     el.hidden = role !== 'caller';
   });
+  // The agent's job is attending meetings, not chasing sales-pipeline tasks
+  // (calls to make, stale proposals — those are Caller/PA metrics and
+  // always read 0 for him) — so his Summary is just a month-glance calendar
+  // instead of the task list + single-day view everyone else gets.
+  const isAgentSummary = role === 'agent';
+  const tasksCard = $('#tasks-card');
+  const scheduleCard = $('#schedule-card');
+  const calendarCard = $('#calendar-card');
+  if (tasksCard) tasksCard.hidden = isAgentSummary;
+  if (scheduleCard) scheduleCard.hidden = isAgentSummary;
+  if (calendarCard) calendarCard.hidden = !isAgentSummary;
+  if ($('#tab-summary').classList.contains('active')) renderSummaryTab();
 }
 
 async function loadUsers() {
@@ -321,8 +333,123 @@ $('#sched-next').addEventListener('click', () => {
   renderScheduleCard();
 });
 
+// ---------- Month calendar (Agent's Summary view) ----------
+let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+let calendarSelectedDate = new Date();
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function sameDay(a, b) {
+  return a.toDateString() === b.toDateString();
+}
+
+async function renderCalendarCard() {
+  const grid = $('#calendar-grid');
+  $('#calendar-month-label').textContent = calendarMonth.toLocaleDateString(undefined, {
+    month: 'long',
+    year: 'numeric',
+  });
+  await withRetry(grid, async () => {
+    const monthParam = `${calendarMonth.getFullYear()}-${String(calendarMonth.getMonth() + 1).padStart(2, '0')}`;
+    const meetings = await api(`/api/summary/month?month=${monthParam}`);
+    const byDay = {};
+    meetings.forEach((m) => {
+      const d = new Date(m.scheduled_at);
+      if (d.getMonth() !== calendarMonth.getMonth() || d.getFullYear() !== calendarMonth.getFullYear()) return;
+      const key = d.getDate();
+      (byDay[key] = byDay[key] || []).push(m);
+    });
+
+    const firstOfMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
+    const daysInMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0).getDate();
+    const leadingBlanks = firstOfMonth.getDay();
+    const today = new Date();
+
+    let cells = WEEKDAY_LABELS.map((w) => `<div class="cal-weekday">${w}</div>`).join('');
+    for (let i = 0; i < leadingBlanks; i++) cells += '<div class="cal-day empty"></div>';
+    for (let day = 1; day <= daysInMonth; day++) {
+      const cellDate = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), day);
+      const count = (byDay[day] || []).length;
+      const classes = ['cal-day'];
+      if (sameDay(cellDate, today)) classes.push('today');
+      if (sameDay(cellDate, calendarSelectedDate)) classes.push('selected');
+      cells += `
+        <div class="${classes.join(' ')}" data-day="${day}">
+          <span class="cal-day-num">${day}</span>
+          ${count ? `<span class="cal-day-count">${count}</span>` : ''}
+        </div>`;
+    }
+    grid.innerHTML = cells;
+
+    $$('#calendar-grid .cal-day:not(.empty)').forEach((cell) => {
+      cell.addEventListener('click', () => {
+        calendarSelectedDate = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), Number(cell.dataset.day));
+        renderCalendarCard();
+      });
+    });
+
+    renderCalendarDayList(byDay[calendarSelectedDate.getDate()] || []);
+  });
+}
+
+function renderCalendarDayList(dayMeetings) {
+  $('#calendar-day-label').textContent = calendarSelectedDate.toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
+  const el = $('#calendar-day-list');
+  if (!dayMeetings.length) {
+    el.innerHTML = '<div class="empty">Nothing scheduled this day.</div>';
+    return;
+  }
+  el.innerHTML = dayMeetings
+    .slice()
+    .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
+    .map((d) => {
+      const isZoomOnly = d.source === 'zoom';
+      const name = isZoomOnly ? d.title : d.contact?.name || 'unknown';
+      return `
+      <div class="schedule-slot" data-id="${d.id}">
+        <span class="s-time">${fmtTime(d.scheduled_at)}</span>
+        <span class="s-name">${name}${d.reschedule_requested ? ' <span class="badge-warning">⚠ reschedule</span>' : ''}</span>
+        <span class="s-actions">
+          ${
+            isZoomOnly
+              ? d.zoom_link
+                ? `<a href="${d.zoom_link}" target="_blank" rel="noopener">Join</a>`
+                : ''
+              : '<button data-action="view">View</button>'
+          }
+        </span>
+      </div>`;
+    })
+    .join('');
+  $$('#calendar-day-list .schedule-slot').forEach((slot) => {
+    const viewBtn = slot.querySelector('[data-action="view"]');
+    if (viewBtn) viewBtn.addEventListener('click', () => openDealModal(slot.dataset.id));
+  });
+}
+
+$('#cal-prev').addEventListener('click', () => {
+  calendarMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1);
+  renderCalendarCard();
+});
+$('#cal-next').addEventListener('click', () => {
+  calendarMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1);
+  renderCalendarCard();
+});
+$('#cal-today').addEventListener('click', () => {
+  calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  calendarSelectedDate = new Date();
+  renderCalendarCard();
+});
+
 async function renderSummaryTab() {
-  await Promise.all([renderTasksCard(), renderScheduleCard()]);
+  if (currentRole === 'agent') {
+    await renderCalendarCard();
+  } else {
+    await Promise.all([renderTasksCard(), renderScheduleCard()]);
+  }
 }
 
 // =====================================================================

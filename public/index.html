@@ -67,11 +67,11 @@
       <!-- SUMMARY -->
       <section id="tab-summary" class="tab-panel active">
         <div class="summary-grid">
-          <div class="card summary-col">
+          <div id="tasks-card" class="card summary-col">
             <h3>Your tasks</h3>
             <div id="tasks-body">Loading…</div>
           </div>
-          <div class="card summary-col schedule-col">
+          <div id="schedule-card" class="card summary-col schedule-col">
             <div class="schedule-head">
               <h3>Schedule</h3>
               <div class="schedule-nav">
@@ -81,6 +81,21 @@
               </div>
             </div>
             <div id="schedule-body">Loading…</div>
+          </div>
+          <div id="calendar-card" class="card calendar-col" hidden>
+            <div class="schedule-head">
+              <h3 id="calendar-month-label">Schedule</h3>
+              <div class="schedule-nav">
+                <button id="cal-prev">‹</button>
+                <button id="cal-today" class="calendar-nav-today">Today</button>
+                <button id="cal-next">›</button>
+              </div>
+            </div>
+            <div id="calendar-grid" class="calendar-grid">Loading…</div>
+            <div class="calendar-day-detail">
+              <h4 id="calendar-day-label"></h4>
+              <div id="calendar-day-list"></div>
+            </div>
           </div>
         </div>
       </section>

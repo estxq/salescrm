@@ -460,6 +460,34 @@ app.get('/api/summary/schedule', async (req, res) => {
   res.json(combined);
 });
 
+// Same idea as /api/summary/schedule but for a whole month, so the Agent's
+// calendar view can show which days have meetings without one request per day.
+app.get('/api/summary/month', async (req, res) => {
+  const [y, m] = (req.query.month || '').split('-').map(Number);
+  const now = new Date();
+  const year = y || now.getFullYear();
+  const monthIndex = m ? m - 1 : now.getMonth();
+  const monthStart = new Date(year, monthIndex, 1);
+  const monthEnd = new Date(year, monthIndex + 1, 1);
+
+  const allDeals = await listDeals({ stage: 'meeting_booked' });
+  const deals = allDeals.filter((d) => {
+    if (!d.scheduled_at) return false;
+    const t = new Date(d.scheduled_at).getTime();
+    return t >= monthStart.getTime() && t < monthEnd.getTime();
+  });
+  const withContacts = await Promise.all(deals.map(async (d) => ({ ...d, contact: await getContact(d.contact_id) })));
+
+  const linkedIds = new Set(allDeals.filter((d) => d.zoom_meeting_id).map((d) => d.zoom_meeting_id));
+  const zoomOnly = (await getZoomOnlyMeetings(linkedIds)).filter((zm) => {
+    const t = new Date(zm.scheduled_at).getTime();
+    return t >= monthStart.getTime() && t < monthEnd.getTime();
+  });
+  const combined = withContacts.concat(zoomOnly);
+  combined.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+  res.json(combined);
+});
+
 // ---------- Templates ----------
 app.get('/api/templates', async (req, res) => res.json(await listTemplates()));
 app.post('/api/templates', async (req, res) => res.status(201).json(await createTemplate(req.body || {})));

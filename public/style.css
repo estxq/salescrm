@@ -398,6 +398,54 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
   .summary-grid { grid-template-columns: 1fr; }
 }
 
+/* ---------- Month calendar (Agent's Summary view) ---------- */
+.calendar-col { grid-column: 1 / -1; }
+.calendar-nav-today {
+  font-size: 11px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border);
+  background: white; cursor: pointer; color: var(--muted);
+}
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  margin-bottom: 18px;
+}
+.cal-weekday {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  text-align: center;
+  padding: 4px 0;
+}
+.cal-day {
+  min-height: 64px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.cal-day:hover { background: var(--bg); }
+.cal-day.empty { background: transparent; border-color: transparent; cursor: default; }
+.cal-day.today { border-color: var(--accent); }
+.cal-day.selected { background: var(--accent-weak); border-color: var(--accent); }
+.cal-day-num { font-weight: 600; }
+.cal-day-count {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: white;
+}
+.calendar-day-detail { border-top: 1px solid var(--border); padding-top: 12px; }
+.calendar-day-detail h4 { margin: 0 0 8px; font-size: 13px; }
+
 /* ---------- Meetings ---------- */
 .meetings-toolbar {
   display: flex;
