@@ -200,8 +200,6 @@ body {
   border-bottom: 1px solid var(--border);
 }
 .page-head h1 { font-size: 20px; margin: 0 0 12px; font-weight: 600; }
-.page-head .sep { color: var(--muted); font-weight: 400; margin: 0 4px; }
-#page-user-name { color: var(--muted); font-weight: 400; }
 
 .tabs { display: flex; gap: 22px; }
 
