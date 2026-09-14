@@ -50,6 +50,31 @@ async function cleanupZoomMeeting(dealBefore) {
   }
 }
 
+// Meetings the agent booked directly in Zoom (interviews, etc.) rather than
+// through the CRM pipeline — shown read-only alongside CRM meetings so the
+// Meetings tab reflects the agent's real calendar, not just sales deals.
+async function getZoomOnlyMeetings(linkedZoomMeetingIds) {
+  if (!(await zoom.isConnected())) return [];
+  try {
+    const meetings = await zoom.listMeetings();
+    return meetings
+      .filter((m) => !linkedZoomMeetingIds.has(m.id))
+      .map((m) => ({
+        id: `zoom-${m.id}`,
+        source: 'zoom',
+        title: m.topic,
+        zoom_link: m.join_url,
+        scheduled_at: m.start_time,
+        contact: null,
+        owner: 'Zoom',
+        reschedule_requested: null,
+      }));
+  } catch (err) {
+    console.error('[zoom] list meetings failed', err.message);
+    return [];
+  }
+}
+
 async function lastCallOutcome(dealId) {
   const lastCall = (await listActivities({ deal_id: dealId })).find((a) => a.type === 'call');
   return lastCall?.meta?.outcome || null;
@@ -152,12 +177,20 @@ app.get('/api/stages', (req, res) => res.json(STAGES.map((s) => ({ key: s, label
 app.get('/api/meetings', async (req, res) => {
   const when = req.query.when || 'all';
   const now = Date.now();
-  let deals = (await listDeals()).filter((d) => d.scheduled_at);
+  const allDeals = (await listDeals()).filter((d) => d.scheduled_at);
+  let deals = allDeals;
   if (when === 'upcoming') deals = deals.filter((d) => new Date(d.scheduled_at).getTime() > now);
   if (when === 'past') deals = deals.filter((d) => new Date(d.scheduled_at).getTime() <= now);
   const withContacts = await Promise.all(deals.map(async (d) => ({ ...d, contact: await getContact(d.contact_id) })));
-  withContacts.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
-  res.json(withContacts);
+
+  let combined = withContacts;
+  if (when !== 'past') {
+    // Zoom's API only lists upcoming meetings, so there's nothing to add for "past".
+    const linkedIds = new Set(allDeals.filter((d) => d.zoom_meeting_id).map((d) => d.zoom_meeting_id));
+    combined = combined.concat(await getZoomOnlyMeetings(linkedIds));
+  }
+  combined.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+  res.json(combined);
 });
 
 app.get('/api/deals/:id', async (req, res) => {
@@ -373,12 +406,17 @@ app.get('/api/summary/activities', async (req, res) => {
 app.get('/api/summary/schedule', async (req, res) => {
   const date = req.query.date ? new Date(req.query.date) : new Date();
   const dayStr = date.toDateString();
-  const deals = (await listDeals({ stage: 'meeting_booked' })).filter(
-    (d) => d.scheduled_at && new Date(d.scheduled_at).toDateString() === dayStr
-  );
+  const allDeals = await listDeals({ stage: 'meeting_booked' });
+  const deals = allDeals.filter((d) => d.scheduled_at && new Date(d.scheduled_at).toDateString() === dayStr);
   const withContacts = await Promise.all(deals.map(async (d) => ({ ...d, contact: await getContact(d.contact_id) })));
-  withContacts.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
-  res.json(withContacts);
+
+  const linkedIds = new Set(allDeals.filter((d) => d.zoom_meeting_id).map((d) => d.zoom_meeting_id));
+  const zoomOnly = (await getZoomOnlyMeetings(linkedIds)).filter(
+    (m) => new Date(m.scheduled_at).toDateString() === dayStr
+  );
+  const combined = withContacts.concat(zoomOnly);
+  combined.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+  res.json(combined);
 });
 
 // ---------- Templates ----------

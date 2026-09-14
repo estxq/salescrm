@@ -269,19 +269,28 @@ async function renderScheduleCard() {
       return;
     }
     el.innerHTML = deals
-      .map(
-        (d) => `
+      .map((d) => {
+        const isZoomOnly = d.source === 'zoom';
+        const name = isZoomOnly ? d.title : d.contact?.name || 'unknown';
+        return `
         <div class="schedule-slot" data-id="${d.id}">
           <span class="s-time">${fmtTime(d.scheduled_at)}</span>
-          <span class="s-name">${d.contact?.name || 'unknown'}${d.reschedule_requested ? ' <span class="badge-warning">⚠ reschedule</span>' : ''}</span>
+          <span class="s-name">${name}${d.reschedule_requested ? ' <span class="badge-warning">⚠ reschedule</span>' : ''}</span>
           <span class="s-actions">
-            <button data-action="view">View</button>
+            ${
+              isZoomOnly
+                ? d.zoom_link
+                  ? `<a href="${d.zoom_link}" target="_blank" rel="noopener">Join</a>`
+                  : ''
+                : '<button data-action="view">View</button>'
+            }
           </span>
-        </div>`
-      )
+        </div>`;
+      })
       .join('');
     $$('#schedule-body .schedule-slot').forEach((slot) => {
-      slot.querySelector('[data-action="view"]').addEventListener('click', () => openDealModal(slot.dataset.id));
+      const viewBtn = slot.querySelector('[data-action="view"]');
+      if (viewBtn) viewBtn.addEventListener('click', () => openDealModal(slot.dataset.id));
     });
   });
 }
@@ -335,24 +344,27 @@ async function renderMeetingsTab() {
     return;
   }
   body.innerHTML = deals
-    .map(
-      (d) => `
-      <div class="meetings-row" data-id="${d.id}">
-        <div class="mt-name">${d.contact?.name ? `Call with ${d.contact.name}` : 'Meeting'}</div>
+    .map((d) => {
+      const isZoomOnly = d.source === 'zoom';
+      const name = isZoomOnly ? d.title : d.contact?.name ? `Call with ${d.contact.name}` : 'Meeting';
+      return `
+      <div class="meetings-row" data-id="${d.id}" ${isZoomOnly ? 'data-zoom-only="1"' : ''}>
+        <div class="mt-name">${name}</div>
         <div class="mt-join">${
           d.zoom_link
             ? `<a href="${d.zoom_link}" target="_blank" rel="noopener" class="join-btn">Join</a>`
             : '<span class="join-btn join-disabled">Join</span>'
         }</div>
         <div class="mt-date"><div>${fmtDateOnly(d.scheduled_at)}</div><div class="mt-time">${fmtTime(d.scheduled_at)}</div></div>
-        <div class="mt-attendee">${avatarHtml(d.contact?.name)}</div>
-        <div class="mt-owner">${avatarHtml(d.owner)}</div>
-        <div class="mt-actions"><button class="resched-btn" data-id="${d.id}">Reschedule</button></div>
-      </div>`
-    )
+        <div class="mt-attendee">${isZoomOnly ? '' : avatarHtml(d.contact?.name)}</div>
+        <div class="mt-owner">${isZoomOnly ? '<span class="hint">Zoom</span>' : avatarHtml(d.owner)}</div>
+        <div class="mt-actions">${isZoomOnly ? '' : `<button class="resched-btn" data-id="${d.id}">Reschedule</button>`}</div>
+      </div>`;
+    })
     .join('');
   $$('#meetings-body .meetings-row').forEach((row) => {
     row.addEventListener('click', (e) => {
+      if (row.dataset.zoomOnly) return; // no linked deal to open
       if (e.target.closest('.join-btn') || e.target.closest('.resched-btn') || e.target.closest('.inline-resched')) return;
       openDealModal(row.dataset.id);
     });
