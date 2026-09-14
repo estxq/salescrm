@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import 'express-async-errors';
 
 import { listUsers, createUser } from './lib/users.js';
-import { listContacts, getContact, findContactByPhone, createContact, updateContact } from './lib/contacts.js';
+import { listContacts, getContact, findContactByPhone, createContact, updateContact, deleteContact } from './lib/contacts.js';
 import {
   STAGES,
   STAGE_LABELS,
@@ -26,13 +26,14 @@ import {
   updateDealValue,
   logCall,
   addNote,
+  deleteDeal,
 } from './lib/deals.js';
-import { listActivities, logActivity, markEmailOpened } from './lib/activities.js';
+import { listActivities, logActivity, markEmailOpened, deleteActivitiesFor } from './lib/activities.js';
 import { listTemplates, getTemplate, createTemplate, updateTemplate, deleteTemplate } from './lib/templates.js';
 import { renderTemplate, newTrackingToken, sendEmail, TRACKING_PIXEL } from './lib/mailer.js';
 import { fetchLeads } from './lib/sheets.js';
 import { notifyScheduled, notifyRescheduleConfirmed, notifyRescheduleRequested } from './lib/notify.js';
-import { listNotifications, markRead, markAllRead, unreadCount } from './lib/notifications.js';
+import { listNotifications, markRead, markAllRead, unreadCount, deleteNotificationsFor } from './lib/notifications.js';
 import { buildIcs, googleCalendarLink } from './lib/calendar.js';
 import { checkAndSendReminders } from './lib/reminders.js';
 import * as zoom from './lib/zoom.js';
@@ -107,6 +108,25 @@ app.patch('/api/contacts/:id', async (req, res) => {
   const contact = await updateContact(req.params.id, req.body || {});
   if (!contact) return res.status(404).json({ error: 'not found' });
   res.json(contact);
+});
+
+// Cleanup tool for bad imports/test data — removes the contact along with
+// every deal, activity, and notification tied to it, and frees up any real
+// Zoom meeting those deals were holding.
+app.delete('/api/contacts/:id', async (req, res) => {
+  const contact = await getContact(req.params.id);
+  if (!contact) return res.status(404).json({ error: 'not found' });
+  const deals = await listDeals({ contact_id: contact.id });
+  for (const deal of deals) {
+    await cleanupZoomMeeting(deal);
+    await deleteDeal(deal.id);
+    await deleteActivitiesFor({ deal_id: deal.id });
+    await deleteNotificationsFor({ deal_id: deal.id });
+  }
+  await deleteActivitiesFor({ contact_id: contact.id });
+  await deleteNotificationsFor({ contact_id: contact.id });
+  await deleteContact(contact.id);
+  res.json({ deleted: true, contact_id: contact.id, deals_removed: deals.length });
 });
 
 // ---------- Deals / pipeline ----------
