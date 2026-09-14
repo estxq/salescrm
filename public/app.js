@@ -420,7 +420,7 @@ async function renderPipelineTab() {
   const next = await api('/api/deals/next');
   const nextCard = $('#next-card');
   nextCard.innerHTML = next
-    ? `<strong>Next up:</strong> #${next.id} ${next.contact?.name || ''} — ${fmtWhen(next.scheduled_at)}<br/>${
+    ? `<strong>Next up:</strong> ${next.contact?.name || ''} — ${fmtWhen(next.scheduled_at)}<br/>${
         next.zoom_link ? `Zoom: ${next.zoom_link}` : ''
       }`
     : 'No upcoming scheduled meetings.';
@@ -467,7 +467,7 @@ function dealCard(deal) {
   card.draggable = true;
   card.dataset.id = deal.id;
   card.innerHTML = `
-    <div class="dname">#${deal.id} ${deal.contact?.name || 'unknown'}</div>
+    <div class="dname">${deal.contact?.name || 'unknown'}</div>
     <div class="dwhen">${deal.stage === 'meeting_booked' ? fmtWhen(deal.scheduled_at) : ''}</div>
     ${deal.last_call_outcome ? `<div class="badge-call">📞 ${CALL_OUTCOME_LABELS[deal.last_call_outcome] || deal.last_call_outcome}</div>` : ''}
     ${deal.reschedule_requested ? '<div class="badge-warning">⚠ reschedule requested</div>' : ''}
@@ -518,9 +518,8 @@ async function openDealModal(id) {
   const isAgent = currentRole === 'agent';
 
   const body = `
-    <h2>#${deal.id} ${contact.name || ''}</h2>
+    <h2>${contact.name || ''}</h2>
     <div class="mnotes">${contact.phone || ''} ${contact.email ? '· ' + contact.email : ''}</div>
-    <div class="mnotes">${contact.notes || ''}</div>
     ${deal.last_call_outcome ? `<div class="badge-call" style="margin-top:6px">📞 Last call: ${CALL_OUTCOME_LABELS[deal.last_call_outcome] || deal.last_call_outcome}</div>` : ''}
     ${deal.zoom_link ? `<div class="mnotes" style="margin-top:6px">Zoom link: <a href="${deal.zoom_link}" target="_blank" rel="noopener">${deal.zoom_link}</a></div>` : ''}
 
