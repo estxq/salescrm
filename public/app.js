@@ -1185,6 +1185,25 @@ async function renderContactsTab(q) {
       });
     });
     actions.appendChild(editBtn);
+
+    // Symmetric with who can add contacts (Caller's job) — deleting one is
+    // the undo of that, so it gets the same role restriction.
+    const deleteBtn = document.createElement('button');
+    deleteBtn.textContent = 'Delete contact';
+    deleteBtn.className = 'danger';
+    deleteBtn.hidden = currentRole !== 'caller';
+    deleteBtn.addEventListener('click', async () => {
+      if (
+        !confirm(
+          `Delete ${c.name}? This removes the contact and their deal history, and cancels any real Zoom meeting they have booked. This can't be undone.`
+        )
+      )
+        return;
+      await api(`/api/contacts/${c.id}`, { method: 'DELETE' });
+      renderContactsTab($('#contact-search').value);
+    });
+    actions.appendChild(deleteBtn);
+
     card.appendChild(actions);
     el.appendChild(card);
   });
