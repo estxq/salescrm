@@ -335,11 +335,55 @@ $('#sched-next').addEventListener('click', () => {
 
 // ---------- Month calendar (Agent's Summary view) ----------
 let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-let calendarSelectedDate = new Date();
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const CAL_MAX_VISIBLE = 3;
 
 function sameDay(a, b) {
   return a.toDateString() === b.toDateString();
+}
+
+// Zoom-only meetings have no deal to open a modal for — Join is the only
+// thing to do with them, so a click just opens the link instead.
+function openCalendarMeeting(meeting) {
+  if (meeting.source === 'zoom') {
+    if (meeting.zoom_link) window.open(meeting.zoom_link, '_blank', 'noopener');
+  } else {
+    openDealModal(meeting.id);
+  }
+}
+
+async function renderCalendarUpcoming() {
+  const el = $('#calendar-upcoming-list');
+  await withRetry(el, async () => {
+    const upcoming = (await api('/api/meetings?when=upcoming')).slice(0, 5);
+    if (!upcoming.length) {
+      el.innerHTML = '<div class="empty">Nothing coming up.</div>';
+      return;
+    }
+    el.innerHTML = upcoming
+      .map((m) => {
+        const isZoomOnly = m.source === 'zoom';
+        const name = isZoomOnly ? m.title : m.contact?.name ? `Call with ${m.contact.name}` : 'Meeting';
+        const when = `${new Date(m.scheduled_at).toLocaleDateString(undefined, {
+          weekday: 'short',
+          month: 'short',
+          day: 'numeric',
+        })} · ${fmtTime(m.scheduled_at)}`;
+        return `
+        <div class="upcoming-item" data-idx="${upcoming.indexOf(m)}">
+          <span class="u-when">${when}</span>
+          <span class="u-name">${name}</span>
+          ${m.zoom_link ? `<a href="${m.zoom_link}" target="_blank" rel="noopener" class="u-join">Join</a>` : ''}
+        </div>`;
+      })
+      .join('');
+    $$('#calendar-upcoming-list .upcoming-item').forEach((item) => {
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.u-join')) return;
+        openCalendarMeeting(upcoming[Number(item.dataset.idx)]);
+      });
+    });
+  });
 }
 
 async function renderCalendarCard() {
@@ -355,9 +399,9 @@ async function renderCalendarCard() {
     meetings.forEach((m) => {
       const d = new Date(m.scheduled_at);
       if (d.getMonth() !== calendarMonth.getMonth() || d.getFullYear() !== calendarMonth.getFullYear()) return;
-      const key = d.getDate();
-      (byDay[key] = byDay[key] || []).push(m);
+      (byDay[d.getDate()] = byDay[d.getDate()] || []).push(m);
     });
+    Object.values(byDay).forEach((list) => list.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at)));
 
     const firstOfMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
     const daysInMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0).getDate();
@@ -368,65 +412,34 @@ async function renderCalendarCard() {
     for (let i = 0; i < leadingBlanks; i++) cells += '<div class="cal-day empty"></div>';
     for (let day = 1; day <= daysInMonth; day++) {
       const cellDate = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), day);
-      const count = (byDay[day] || []).length;
+      const dayMeetings = byDay[day] || [];
+      const visible = dayMeetings.slice(0, CAL_MAX_VISIBLE);
+      const overflow = dayMeetings.length - visible.length;
       const classes = ['cal-day'];
       if (sameDay(cellDate, today)) classes.push('today');
-      if (sameDay(cellDate, calendarSelectedDate)) classes.push('selected');
+      const eventsHtml = visible
+        .map((m, i) => {
+          const isZoomOnly = m.source === 'zoom';
+          const name = isZoomOnly ? m.title : m.contact?.name || 'Meeting';
+          return `<div class="cal-event" data-day="${day}" data-idx="${i}">${fmtTime(m.scheduled_at)} ${name}</div>`;
+        })
+        .join('');
       cells += `
-        <div class="${classes.join(' ')}" data-day="${day}">
+        <div class="${classes.join(' ')}">
           <span class="cal-day-num">${day}</span>
-          ${count ? `<span class="cal-day-count">${count}</span>` : ''}
+          <div class="cal-day-events">
+            ${eventsHtml}
+            ${overflow > 0 ? `<div class="cal-more">+${overflow} more</div>` : ''}
+          </div>
         </div>`;
     }
     grid.innerHTML = cells;
 
-    $$('#calendar-grid .cal-day:not(.empty)').forEach((cell) => {
-      cell.addEventListener('click', () => {
-        calendarSelectedDate = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), Number(cell.dataset.day));
-        renderCalendarCard();
-      });
+    $$('#calendar-grid .cal-event').forEach((chip) => {
+      const meeting = (byDay[Number(chip.dataset.day)] || [])[Number(chip.dataset.idx)];
+      if (!meeting) return;
+      chip.addEventListener('click', () => openCalendarMeeting(meeting));
     });
-
-    renderCalendarDayList(byDay[calendarSelectedDate.getDate()] || []);
-  });
-}
-
-function renderCalendarDayList(dayMeetings) {
-  $('#calendar-day-label').textContent = calendarSelectedDate.toLocaleDateString(undefined, {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-  });
-  const el = $('#calendar-day-list');
-  if (!dayMeetings.length) {
-    el.innerHTML = '<div class="empty">Nothing scheduled this day.</div>';
-    return;
-  }
-  el.innerHTML = dayMeetings
-    .slice()
-    .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
-    .map((d) => {
-      const isZoomOnly = d.source === 'zoom';
-      const name = isZoomOnly ? d.title : d.contact?.name || 'unknown';
-      return `
-      <div class="schedule-slot" data-id="${d.id}">
-        <span class="s-time">${fmtTime(d.scheduled_at)}</span>
-        <span class="s-name">${name}${d.reschedule_requested ? ' <span class="badge-warning">⚠ reschedule</span>' : ''}</span>
-        <span class="s-actions">
-          ${
-            isZoomOnly
-              ? d.zoom_link
-                ? `<a href="${d.zoom_link}" target="_blank" rel="noopener">Join</a>`
-                : ''
-              : '<button data-action="view">View</button>'
-          }
-        </span>
-      </div>`;
-    })
-    .join('');
-  $$('#calendar-day-list .schedule-slot').forEach((slot) => {
-    const viewBtn = slot.querySelector('[data-action="view"]');
-    if (viewBtn) viewBtn.addEventListener('click', () => openDealModal(slot.dataset.id));
   });
 }
 
@@ -440,13 +453,12 @@ $('#cal-next').addEventListener('click', () => {
 });
 $('#cal-today').addEventListener('click', () => {
   calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-  calendarSelectedDate = new Date();
   renderCalendarCard();
 });
 
 async function renderSummaryTab() {
   if (currentRole === 'agent') {
-    await renderCalendarCard();
+    await Promise.all([renderCalendarUpcoming(), renderCalendarCard()]);
   } else {
     await Promise.all([renderTasksCard(), renderScheduleCard()]);
   }

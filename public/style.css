@@ -404,11 +404,26 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
   font-size: 11px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border);
   background: white; cursor: pointer; color: var(--muted);
 }
+.calendar-upcoming { margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.calendar-upcoming h4 { margin: 0 0 10px; font-size: 13px; }
+.upcoming-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px dashed var(--border);
+  font-size: 13px;
+  cursor: pointer;
+}
+.upcoming-item:last-child { border-bottom: none; }
+.upcoming-item:hover { background: var(--bg); }
+.upcoming-item .u-when { color: var(--muted); font-size: 12px; width: 150px; flex-shrink: 0; }
+.upcoming-item .u-name { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upcoming-item .u-join { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--accent-weak); color: var(--accent); text-decoration: none; flex-shrink: 0; }
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 6px;
-  margin-bottom: 18px;
 }
 .cal-weekday {
   font-size: 11px;
@@ -419,32 +434,34 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
   padding: 4px 0;
 }
 .cal-day {
-  min-height: 64px;
+  min-height: 96px;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 6px;
-  cursor: pointer;
   font-size: 12px;
   background: var(--card);
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 4px;
 }
-.cal-day:hover { background: var(--bg); }
-.cal-day.empty { background: transparent; border-color: transparent; cursor: default; }
+.cal-day.empty { background: transparent; border-color: transparent; }
 .cal-day.today { border-color: var(--accent); }
-.cal-day.selected { background: var(--accent-weak); border-color: var(--accent); }
 .cal-day-num { font-weight: 600; }
-.cal-day-count {
+.cal-day-events { display: flex; flex-direction: column; gap: 3px; }
+.cal-event {
   font-size: 10px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--accent);
-  color: white;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--accent-weak);
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
 }
-.calendar-day-detail { border-top: 1px solid var(--border); padding-top: 12px; }
-.calendar-day-detail h4 { margin: 0 0 8px; font-size: 13px; }
+.cal-event:hover { background: var(--accent); color: white; }
+.cal-more { font-size: 10px; color: var(--muted); padding-left: 2px; }
 
 /* ---------- Meetings ---------- */
 .meetings-toolbar {
