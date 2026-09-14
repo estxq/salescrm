@@ -511,13 +511,23 @@ async function openDealModal(id) {
     ? await api(`/api/deals/${id}/calendar-link`).catch(() => null)
     : null;
 
+  // The agent's job is to attend the meeting, not manage the pipeline —
+  // give them the essentials (who/how to reach them, the join link) plus a
+  // way to flag a reschedule, and leave calling/scheduling/emailing to
+  // whoever's role actually owns those (caller/PA).
+  const isAgent = currentRole === 'agent';
+
   const body = `
     <h2>#${deal.id} ${contact.name || ''}</h2>
     <div class="mnotes">${contact.phone || ''} ${contact.email ? '· ' + contact.email : ''}</div>
     <div class="mnotes">${contact.notes || ''}</div>
     ${deal.last_call_outcome ? `<div class="badge-call" style="margin-top:6px">📞 Last call: ${CALL_OUTCOME_LABELS[deal.last_call_outcome] || deal.last_call_outcome}</div>` : ''}
+    ${deal.zoom_link ? `<div class="mnotes" style="margin-top:6px">Zoom link: <a href="${deal.zoom_link}" target="_blank" rel="noopener">${deal.zoom_link}</a></div>` : ''}
 
-    <div class="section-head"><h2>Call progress</h2></div>
+    ${
+      isAgent
+        ? ''
+        : `<div class="section-head"><h2>Call progress</h2></div>
     <div class="mactions">
       <select id="m-call-outcome">
         <option value="no_pickup">Called (no pickup)</option>
@@ -526,10 +536,11 @@ async function openDealModal(id) {
       </select>
       <input id="m-call-notes" placeholder="Notes" />
       <button id="m-log-call" class="primary">Log call</button>
-    </div>
+    </div>`
+    }
 
     ${
-      deal.stage === 'new' || deal.stage === 'contacted'
+      !isAgent && (deal.stage === 'new' || deal.stage === 'contacted')
         ? `<div class="section-head"><h2>Update progress</h2></div>
     <div class="mactions">
       ${deal.stage === 'new' ? '<button id="m-mark-interested" class="primary">Interested</button>' : ''}
@@ -538,11 +549,15 @@ async function openDealModal(id) {
         : ''
     }
 
-    <div class="section-head"><h2>Remarks</h2></div>
+    ${
+      isAgent
+        ? ''
+        : `<div class="section-head"><h2>Remarks</h2></div>
     <div class="mactions">
       <input id="m-remark" placeholder="Write a remark…" style="flex:1" />
       <button id="m-add-remark">Save remark</button>
-    </div>
+    </div>`
+    }
 
     ${
       deal.reschedule_requested
@@ -553,8 +568,10 @@ async function openDealModal(id) {
         : ''
     }
 
-    <div class="section-head"><h2>${deal.stage === 'meeting_booked' ? 'Reschedule' : 'Schedule meeting'}</h2></div>
-    ${deal.zoom_link ? `<div class="mnotes">Current Zoom link: <a href="${deal.zoom_link}" target="_blank" rel="noopener">${deal.zoom_link}</a></div>` : ''}
+    ${
+      isAgent
+        ? ''
+        : `<div class="section-head"><h2>${deal.stage === 'meeting_booked' ? 'Reschedule' : 'Schedule meeting'}</h2></div>
     <div class="mactions">
       <input id="m-time" type="datetime-local" />
       ${ZOOM_STATUS.connected ? '' : `<input id="m-zoom" placeholder="Zoom link" value="${deal.zoom_link || ''}" />`}
@@ -573,6 +590,7 @@ async function openDealModal(id) {
       calendarLinks
         ? `<div class="mnotes"><a href="${calendarLinks.googleCalendarUrl}" target="_blank" rel="noopener">Add to Google Calendar</a> · <a href="${calendarLinks.icsUrl}">Download .ics</a></div>`
         : ''
+    }`
     }
 
     ${
@@ -585,12 +603,16 @@ async function openDealModal(id) {
         : ''
     }
 
-    <div class="section-head"><h2>Send email</h2></div>
+    ${
+      isAgent
+        ? ''
+        : `<div class="section-head"><h2>Send email</h2></div>
     <div class="mactions">
       <select id="m-template">${templateOptions || '<option value="">No templates yet</option>'}</select>
       <button id="m-send-email" class="primary" ${templates.length ? '' : 'disabled'}>Send</button>
     </div>
-    ${contact.email ? '' : '<div class="hint">Contact has no email address — add one in Contacts to send.</div>'}
+    ${contact.email ? '' : '<div class="hint">Contact has no email address — add one in Contacts to send.</div>'}`
+    }
 
     ${
       deal.stage === 'meeting_booked'
@@ -603,11 +625,15 @@ async function openDealModal(id) {
         : ''
     }
 
-    <div class="section-head"><h2>Stage</h2></div>
+    ${
+      isAgent
+        ? ''
+        : `<div class="section-head"><h2>Stage</h2></div>
     <div class="mactions">
       <button id="m-won" class="primary">Mark won</button>
       <button id="m-lost" class="danger">Mark lost</button>
-    </div>
+    </div>`
+    }
 
     <div class="section-head"><h2>Activity timeline</h2></div>
     <div class="timeline">${timelineHtml}</div>
@@ -616,15 +642,17 @@ async function openDealModal(id) {
   $('#modal-body').innerHTML = body;
   $('#modal-overlay').hidden = false;
 
-  $('#m-log-call').addEventListener('click', async () => {
-    await api(`/api/deals/${id}/call`, {
-      method: 'POST',
-      body: JSON.stringify({ outcome: $('#m-call-outcome').value, notes: $('#m-call-notes').value, made_by: currentUser() }),
+  if ($('#m-log-call')) {
+    $('#m-log-call').addEventListener('click', async () => {
+      await api(`/api/deals/${id}/call`, {
+        method: 'POST',
+        body: JSON.stringify({ outcome: $('#m-call-outcome').value, notes: $('#m-call-notes').value, made_by: currentUser() }),
+      });
+      openDealModal(id); refresh();
     });
-    openDealModal(id); refresh();
-  });
+  }
 
-  if (deal.stage === 'new') {
+  if (deal.stage === 'new' && $('#m-mark-interested')) {
     $('#m-mark-interested').addEventListener('click', async () => {
       await api(`/api/deals/${id}/stage`, {
         method: 'POST',
@@ -633,7 +661,7 @@ async function openDealModal(id) {
       closeModal(); refresh();
     });
   }
-  if (deal.stage === 'new' || deal.stage === 'contacted') {
+  if ((deal.stage === 'new' || deal.stage === 'contacted') && $('#m-mark-not-interested')) {
     $('#m-mark-not-interested').addEventListener('click', async () => {
       await api(`/api/deals/${id}/stage`, {
         method: 'POST',
@@ -643,28 +671,32 @@ async function openDealModal(id) {
     });
   }
 
-  $('#m-add-remark').addEventListener('click', async () => {
-    const note = $('#m-remark').value.trim();
-    if (!note) return;
-    await api(`/api/deals/${id}/note`, {
-      method: 'POST',
-      body: JSON.stringify({ note, changed_by: currentUser() }),
+  if ($('#m-add-remark')) {
+    $('#m-add-remark').addEventListener('click', async () => {
+      const note = $('#m-remark').value.trim();
+      if (!note) return;
+      await api(`/api/deals/${id}/note`, {
+        method: 'POST',
+        body: JSON.stringify({ note, changed_by: currentUser() }),
+      });
+      openDealModal(id);
     });
-    openDealModal(id);
-  });
+  }
 
-  $('#m-schedule').addEventListener('click', async () => {
-    const time = $('#m-time').value;
-    if (!time) return alert('Pick a time.');
-    const zoomInput = $('#m-zoom');
-    const zoomLink = zoomInput ? zoomInput.value.trim() : '';
-    if (!ZOOM_STATUS.connected && !zoomLink) return alert('Need a Zoom link (or connect Zoom in the top bar to auto-generate one).');
-    const endpoint = deal.stage === 'meeting_booked' ? 'reschedule' : 'schedule';
-    const payload = { scheduled_at: new Date(time).toISOString(), changed_by: currentUser() };
-    if (zoomLink) payload.zoom_link = zoomLink;
-    await api(`/api/deals/${id}/${endpoint}`, { method: 'POST', body: JSON.stringify(payload) });
-    closeModal(); refresh();
-  });
+  if ($('#m-schedule')) {
+    $('#m-schedule').addEventListener('click', async () => {
+      const time = $('#m-time').value;
+      if (!time) return alert('Pick a time.');
+      const zoomInput = $('#m-zoom');
+      const zoomLink = zoomInput ? zoomInput.value.trim() : '';
+      if (!ZOOM_STATUS.connected && !zoomLink) return alert('Need a Zoom link (or connect Zoom in the top bar to auto-generate one).');
+      const endpoint = deal.stage === 'meeting_booked' ? 'reschedule' : 'schedule';
+      const payload = { scheduled_at: new Date(time).toISOString(), changed_by: currentUser() };
+      if (zoomLink) payload.zoom_link = zoomLink;
+      await api(`/api/deals/${id}/${endpoint}`, { method: 'POST', body: JSON.stringify(payload) });
+      closeModal(); refresh();
+    });
+  }
 
   if (deal.stage === 'meeting_booked') {
     $('#m-request-reschedule').addEventListener('click', async () => {
@@ -690,24 +722,30 @@ async function openDealModal(id) {
     });
   }
 
-  $('#m-send-email').addEventListener('click', async () => {
-    if (!contact.email) return alert('Contact has no email address.');
-    await api(`/api/deals/${id}/email`, {
-      method: 'POST',
-      body: JSON.stringify({ template_id: $('#m-template').value, made_by: currentUser() }),
+  if ($('#m-send-email')) {
+    $('#m-send-email').addEventListener('click', async () => {
+      if (!contact.email) return alert('Contact has no email address.');
+      await api(`/api/deals/${id}/email`, {
+        method: 'POST',
+        body: JSON.stringify({ template_id: $('#m-template').value, made_by: currentUser() }),
+      });
+      openDealModal(id);
     });
-    openDealModal(id);
-  });
+  }
 
-  $('#m-won').addEventListener('click', async () => {
-    await api(`/api/deals/${id}/stage`, { method: 'POST', body: JSON.stringify({ stage: 'won', changed_by: currentUser() }) });
-    closeModal(); refresh();
-  });
+  if ($('#m-won')) {
+    $('#m-won').addEventListener('click', async () => {
+      await api(`/api/deals/${id}/stage`, { method: 'POST', body: JSON.stringify({ stage: 'won', changed_by: currentUser() }) });
+      closeModal(); refresh();
+    });
+  }
 
-  $('#m-lost').addEventListener('click', async () => {
-    await api(`/api/deals/${id}/stage`, { method: 'POST', body: JSON.stringify({ stage: 'lost', changed_by: currentUser() }) });
-    closeModal(); refresh();
-  });
+  if ($('#m-lost')) {
+    $('#m-lost').addEventListener('click', async () => {
+      await api(`/api/deals/${id}/stage`, { method: 'POST', body: JSON.stringify({ stage: 'lost', changed_by: currentUser() }) });
+      closeModal(); refresh();
+    });
+  }
 }
 
 function closeModal() {
