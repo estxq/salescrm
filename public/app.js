@@ -635,8 +635,12 @@ async function openDealModal(id) {
     </div>`
     }
 
-    <div class="section-head"><h2>Activity timeline</h2></div>
-    <div class="timeline">${timelineHtml}</div>
+    ${
+      isAgent
+        ? ''
+        : `<div class="section-head"><h2>Activity timeline</h2></div>
+    <div class="timeline">${timelineHtml}</div>`
+    }
   `;
 
   $('#modal-body').innerHTML = body;
