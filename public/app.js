@@ -494,10 +494,9 @@ async function renderPipelineTab() {
 }
 
 const CALL_OUTCOME_LABELS = {
-  booked: 'Booked',
-  connected: 'Connected',
-  voicemail: 'Voicemail',
-  no_answer: 'No answer',
+  booked: 'Meeting scheduled',
+  not_interested: 'Not interested',
+  no_pickup: 'No pickup',
 };
 
 function dealCard(deal) {
@@ -507,7 +506,6 @@ function dealCard(deal) {
   card.dataset.id = deal.id;
   card.innerHTML = `
     <div class="dname">#${deal.id} ${deal.contact?.name || 'unknown'}</div>
-    ${deal.value ? `<div class="dvalue">$${deal.value}</div>` : ''}
     <div class="dwhen">${deal.stage === 'meeting_booked' ? fmtWhen(deal.scheduled_at) : ''}</div>
     ${deal.last_call_outcome ? `<div class="badge-call">📞 ${CALL_OUTCOME_LABELS[deal.last_call_outcome] || deal.last_call_outcome}</div>` : ''}
     ${deal.reschedule_requested ? '<div class="badge-warning">⚠ reschedule requested</div>' : ''}
@@ -557,18 +555,12 @@ async function openDealModal(id) {
     <div class="mnotes">${contact.notes || ''}</div>
     ${deal.last_call_outcome ? `<div class="badge-call" style="margin-top:6px">📞 Last call: ${CALL_OUTCOME_LABELS[deal.last_call_outcome] || deal.last_call_outcome}</div>` : ''}
 
-    <div class="mactions" style="margin-top:12px">
-      <label>Value $ <input id="m-value" type="number" value="${deal.value || 0}" style="width:90px" /></label>
-      <button id="m-save-value">Save</button>
-    </div>
-
     <div class="section-head"><h2>Call progress</h2></div>
     <div class="mactions">
       <select id="m-call-outcome">
-        <option value="booked">Booked — meeting agreed</option>
-        <option value="connected">Connected, no booking yet</option>
-        <option value="voicemail">Voicemail left</option>
-        <option value="no_answer">No answer</option>
+        <option value="no_pickup">Called (no pickup)</option>
+        <option value="not_interested">Called, not interested</option>
+        <option value="booked">Called, meeting scheduled</option>
       </select>
       <input id="m-call-notes" placeholder="Notes" />
       <button id="m-log-call" class="primary">Log call</button>
@@ -661,14 +653,6 @@ async function openDealModal(id) {
 
   $('#modal-body').innerHTML = body;
   $('#modal-overlay').hidden = false;
-
-  $('#m-save-value').addEventListener('click', async () => {
-    await api(`/api/deals/${id}/value`, {
-      method: 'POST',
-      body: JSON.stringify({ value: Number($('#m-value').value), changed_by: currentUser() }),
-    });
-    closeModal(); refresh();
-  });
 
   $('#m-log-call').addEventListener('click', async () => {
     await api(`/api/deals/${id}/call`, {

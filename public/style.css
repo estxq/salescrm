@@ -527,7 +527,6 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 .deal-card:active { cursor: grabbing; }
 .deal-card.dragging { opacity: 0.5; }
 .deal-card .dname { font-weight: 600; }
-.deal-card .dvalue { color: var(--good); font-size: 12px; }
 .deal-card .dwhen { color: var(--muted); font-size: 11px; margin-top: 4px; }
 .badge-warning {
   margin-top: 6px;
