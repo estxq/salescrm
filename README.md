@@ -112,13 +112,47 @@ bug worth reporting, not just the server being temporarily restarted. Each
 Summary card also fails independently with its own "retry" link, so one
 slow or broken endpoint can't freeze the other two.
 
+## Deploying to Vercel
+
+The app auto-detects Vercel and switches its data layer accordingly — no
+code changes needed, just a couple of things to set up in the Vercel
+dashboard once:
+
+1. **Push this repo to GitHub** (if not already) and import it as a new
+   Vercel project — it's a standard Express app under `api/index.js` +
+   `vercel.json`, Vercel's Node runtime handles the rest.
+2. **Add a Redis store**: Project → Storage → Marketplace → search
+   "Upstash" (or "Redis") → create + connect it to this project. Vercel
+   injects `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`
+   automatically — the moment those exist, `lib/db.js` and `lib/zoom.js`
+   switch from local JSON files to Redis on their own. Without this step,
+   every write on Vercel would silently fail to persist between requests.
+3. **Set environment variables** in Project → Settings → Environment
+   Variables: same ones as `.env.example` (`ZOOM_CLIENT_ID/SECRET`,
+   `ZOOM_REDIRECT_URI` pointed at your real `https://your-app.vercel.app/auth/zoom/callback`,
+   `BASE_URL`, `SMTP_*`, `GOOGLE_SHEETS_*`, `REMINDER_WINDOW_MIN`, and a
+   random `CRON_SECRET`).
+4. **Reminders on the Hobby plan**: `vercel.json` schedules
+   `/api/cron/reminders` once a day (`0 0 * * *`) — that's the finest
+   granularity Vercel's free tier allows for Cron. A once-daily check
+   against a 60-minute reminder window will miss most meetings. Two ways
+   around it: upgrade to Vercel Pro (cron can run every minute), or point a
+   free external pinger (e.g. cron-job.org, or a scheduled GitHub Action in
+   your own repo) at `https://your-app.vercel.app/api/cron/reminders` every
+   5–10 minutes instead — send `Authorization: Bearer <CRON_SECRET>` and
+   it'll work exactly the same way.
+
+Locally, none of this matters: `npm start` keeps using JSON files on disk
+and an in-process 5-minute timer, exactly as before.
+
 ## Data model
 
 Plain JSON files under `data/` (`contacts.json`, `deals.json`,
 `activities.json`, `templates.json`, `users.json`, `notifications.json`,
-`zoom_account.json`) via `lib/db.js`'s tiny generic collection store — good
-enough for one small team. Swap it for a real database if this grows past a
-few thousand records or more than one process needs to write concurrently.
+`zoom_account.json`) via `lib/db.js`'s tiny generic collection store when
+running locally — good enough for one small team testing on a laptop. On
+Vercel the same collections live in Upstash Redis instead (see above),
+since serverless functions can't reliably write to disk.
 
 There's no login/password system — "Acting as" in the top bar is just a
 named identity picker (persisted in your browser) used to attribute calls,

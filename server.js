@@ -38,17 +38,22 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Best-effort: free up the agent's Zoom account when a deal falls through.
-function cleanupZoomMeeting(dealBefore) {
-  if (zoom.isConnected() && dealBefore?.zoom_meeting_id) {
+async function cleanupZoomMeeting(dealBefore) {
+  if ((await zoom.isConnected()) && dealBefore?.zoom_meeting_id) {
     zoom.deleteMeeting(dealBefore.zoom_meeting_id).catch((err) => console.error('[zoom] cleanup failed', err.message));
   }
 }
 
+async function lastCallOutcome(dealId) {
+  const lastCall = (await listActivities({ deal_id: dealId })).find((a) => a.type === 'call');
+  return lastCall?.meta?.outcome || null;
+}
+
 // ---------- Users (lightweight identity, no auth) ----------
-app.get('/api/users', (req, res) => res.json(listUsers()));
-app.post('/api/users', (req, res) => {
+app.get('/api/users', async (req, res) => res.json(await listUsers()));
+app.post('/api/users', async (req, res) => {
   try {
-    res.status(201).json(createUser(req.body || {}));
+    res.status(201).json(await createUser(req.body || {}));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -62,102 +67,103 @@ app.post('/api/leads/import', async (req, res) => {
   const leads = await fetchLeads();
   const created = [];
   for (const lead of leads) {
-    if (!lead.phone || findContactByPhone(lead.phone)) continue;
-    const contact = createContact({
+    if (!lead.phone || (await findContactByPhone(lead.phone))) continue;
+    const contact = await createContact({
       name: lead.name,
       phone: lead.phone,
       notes: lead.notes,
       source: 'google_sheet',
       created_by,
     });
-    const deal = createDeal({ contact_id: contact.id, title: `${contact.name} — new lead`, created_by });
+    const deal = await createDeal({ contact_id: contact.id, title: `${contact.name} — new lead`, created_by });
     created.push({ contact, deal });
   }
   res.json({ imported: created.length, created });
 });
 
 // ---------- Contacts ----------
-app.get('/api/contacts', (req, res) => res.json(listContacts({ q: req.query.q })));
+app.get('/api/contacts', async (req, res) => res.json(await listContacts({ q: req.query.q })));
 
-app.post('/api/contacts', (req, res) => {
+app.post('/api/contacts', async (req, res) => {
   const { name, phone, email, company, notes, created_by } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
-  const contact = createContact({ name, phone, email, company, notes, created_by });
-  const deal = createDeal({ contact_id: contact.id, title: `${contact.name}`, created_by });
+  const contact = await createContact({ name, phone, email, company, notes, created_by });
+  const deal = await createDeal({ contact_id: contact.id, title: `${contact.name}`, created_by });
   res.status(201).json({ contact, deal });
 });
 
-app.get('/api/contacts/:id', (req, res) => {
-  const contact = getContact(req.params.id);
+app.get('/api/contacts/:id', async (req, res) => {
+  const contact = await getContact(req.params.id);
   if (!contact) return res.status(404).json({ error: 'not found' });
   res.json(contact);
 });
 
-app.patch('/api/contacts/:id', (req, res) => {
-  const contact = updateContact(req.params.id, req.body || {});
+app.patch('/api/contacts/:id', async (req, res) => {
+  const contact = await updateContact(req.params.id, req.body || {});
   if (!contact) return res.status(404).json({ error: 'not found' });
   res.json(contact);
 });
 
 // ---------- Deals / pipeline ----------
-function lastCallOutcome(dealId) {
-  const lastCall = listActivities({ deal_id: dealId }).find((a) => a.type === 'call');
-  return lastCall?.meta?.outcome || null;
-}
-
-app.get('/api/deals', (req, res) => {
-  const deals = listDeals({ stage: req.query.stage, contact_id: req.query.contact_id });
-  res.json(deals.map((d) => ({ ...d, contact: getContact(d.contact_id), last_call_outcome: lastCallOutcome(d.id) })));
+app.get('/api/deals', async (req, res) => {
+  const deals = await listDeals({ stage: req.query.stage, contact_id: req.query.contact_id });
+  const withExtras = await Promise.all(
+    deals.map(async (d) => ({
+      ...d,
+      contact: await getContact(d.contact_id),
+      last_call_outcome: await lastCallOutcome(d.id),
+    }))
+  );
+  res.json(withExtras);
 });
-app.get('/api/deals/next', (req, res) => {
-  const deal = getNextMeeting();
-  res.json(deal ? { ...deal, contact: getContact(deal.contact_id) } : null);
+app.get('/api/deals/next', async (req, res) => {
+  const deal = await getNextMeeting();
+  res.json(deal ? { ...deal, contact: await getContact(deal.contact_id) } : null);
 });
 app.get('/api/stages', (req, res) => res.json(STAGES.map((s) => ({ key: s, label: STAGE_LABELS[s] }))));
 
 // Any deal with a scheduled time, regardless of pipeline stage — a
 // dedicated "Meetings" view instead of hunting through kanban columns.
-app.get('/api/meetings', (req, res) => {
+app.get('/api/meetings', async (req, res) => {
   const when = req.query.when || 'all';
   const now = Date.now();
-  let deals = listDeals().filter((d) => d.scheduled_at);
+  let deals = (await listDeals()).filter((d) => d.scheduled_at);
   if (when === 'upcoming') deals = deals.filter((d) => new Date(d.scheduled_at).getTime() > now);
   if (when === 'past') deals = deals.filter((d) => new Date(d.scheduled_at).getTime() <= now);
-  deals = deals
-    .map((d) => ({ ...d, contact: getContact(d.contact_id) }))
-    .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
-  res.json(deals);
+  const withContacts = await Promise.all(deals.map(async (d) => ({ ...d, contact: await getContact(d.contact_id) })));
+  withContacts.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+  res.json(withContacts);
 });
 
-app.get('/api/deals/:id', (req, res) => {
-  const deal = getDeal(req.params.id);
+app.get('/api/deals/:id', async (req, res) => {
+  const deal = await getDeal(req.params.id);
   if (!deal) return res.status(404).json({ error: 'not found' });
   res.json({
     ...deal,
-    contact: getContact(deal.contact_id),
-    activities: listActivities({ deal_id: deal.id }),
-    last_call_outcome: lastCallOutcome(deal.id),
+    contact: await getContact(deal.contact_id),
+    activities: await listActivities({ deal_id: deal.id }),
+    last_call_outcome: await lastCallOutcome(deal.id),
   });
 });
 
 app.post('/api/deals/:id/stage', async (req, res) => {
-  const before = getDeal(req.params.id);
-  const deal = moveStage(req.params.id, req.body || {});
+  const before = await getDeal(req.params.id);
+  const deal = await moveStage(req.params.id, req.body || {});
   if (!deal) return res.status(404).json({ error: 'invalid deal or stage' });
-  if (deal.stage === 'lost') cleanupZoomMeeting(before);
+  if (deal.stage === 'lost') await cleanupZoomMeeting(before);
   res.json(deal);
 });
 
 app.post('/api/deals/:id/schedule', async (req, res) => {
   const { zoom_link, scheduled_at, changed_by } = req.body;
   if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at required' });
-  const existing = getDeal(req.params.id);
+  const existing = await getDeal(req.params.id);
   if (!existing) return res.status(404).json({ error: 'not found' });
-  const contact = getContact(existing.contact_id);
+  const contact = await getContact(existing.contact_id);
 
   let link = zoom_link;
   let meetingId = null;
-  if (!link && zoom.isConnected()) {
+  if (!link && (await zoom.isConnected())) {
     try {
       const meeting = await zoom.createMeeting({ topic: `Call with ${contact?.name || 'client'}`, startTime: scheduled_at });
       link = meeting.joinUrl;
@@ -168,7 +174,7 @@ app.post('/api/deals/:id/schedule', async (req, res) => {
   }
   if (!link) return res.status(400).json({ error: 'zoom_link required (or connect Zoom to auto-generate one)' });
 
-  const deal = scheduleMeeting(req.params.id, { zoom_link: link, zoom_meeting_id: meetingId, scheduled_at, changed_by });
+  const deal = await scheduleMeeting(req.params.id, { zoom_link: link, zoom_meeting_id: meetingId, scheduled_at, changed_by });
   await notifyScheduled(deal);
   res.json(deal);
 });
@@ -176,12 +182,12 @@ app.post('/api/deals/:id/schedule', async (req, res) => {
 app.post('/api/deals/:id/reschedule', async (req, res) => {
   const { scheduled_at, zoom_link, changed_by } = req.body;
   if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at required' });
-  const existing = getDeal(req.params.id);
+  const existing = await getDeal(req.params.id);
   if (!existing) return res.status(404).json({ error: 'not found' });
 
   // If this meeting's Zoom event is ours to manage, just move its time —
   // the join link stays exactly the same, nothing to re-share.
-  if (!zoom_link && zoom.isConnected() && existing.zoom_meeting_id) {
+  if (!zoom_link && (await zoom.isConnected()) && existing.zoom_meeting_id) {
     try {
       await zoom.updateMeetingTime(existing.zoom_meeting_id, { startTime: scheduled_at });
     } catch (err) {
@@ -189,7 +195,7 @@ app.post('/api/deals/:id/reschedule', async (req, res) => {
     }
   }
 
-  const deal = rescheduleMeeting(req.params.id, { scheduled_at, zoom_link, changed_by });
+  const deal = await rescheduleMeeting(req.params.id, { scheduled_at, zoom_link, changed_by });
   await notifyRescheduleConfirmed(deal, changed_by);
   res.json(deal);
 });
@@ -199,7 +205,7 @@ app.post('/api/deals/:id/reschedule', async (req, res) => {
 app.post('/api/deals/:id/request-reschedule', async (req, res) => {
   const { remark, requested_by } = req.body;
   if (!remark) return res.status(400).json({ error: 'remark required' });
-  const deal = requestReschedule(req.params.id, { remark, requested_by });
+  const deal = await requestReschedule(req.params.id, { remark, requested_by });
   if (!deal) return res.status(404).json({ error: 'not found' });
   await notifyRescheduleRequested(deal, remark, requested_by);
   res.json(deal);
@@ -209,42 +215,42 @@ app.get('/api/followup-outcomes', (req, res) => {
   res.json(Object.entries(FOLLOWUP_OUTCOMES).map(([key, v]) => ({ key, label: v.label })));
 });
 
-app.post('/api/deals/:id/followup', (req, res) => {
+app.post('/api/deals/:id/followup', async (req, res) => {
   const { outcome, note, changed_by } = req.body;
-  const before = getDeal(req.params.id);
-  const deal = logFollowUp(req.params.id, { outcome, note, changed_by });
+  const before = await getDeal(req.params.id);
+  const deal = await logFollowUp(req.params.id, { outcome, note, changed_by });
   if (!deal) return res.status(400).json({ error: 'invalid deal or outcome' });
-  if (deal.stage === 'lost') cleanupZoomMeeting(before);
+  if (deal.stage === 'lost') await cleanupZoomMeeting(before);
   res.json(deal);
 });
 
-app.post('/api/deals/:id/value', (req, res) => {
-  const deal = updateDealValue(req.params.id, req.body || {});
+app.post('/api/deals/:id/value', async (req, res) => {
+  const deal = await updateDealValue(req.params.id, req.body || {});
   if (!deal) return res.status(404).json({ error: 'not found' });
   res.json(deal);
 });
 
-app.post('/api/deals/:id/call', (req, res) => {
+app.post('/api/deals/:id/call', async (req, res) => {
   const { outcome, notes, made_by } = req.body;
   if (!outcome) return res.status(400).json({ error: 'outcome required' });
-  const deal = logCall(req.params.id, { outcome, notes, made_by });
+  const deal = await logCall(req.params.id, { outcome, notes, made_by });
   if (!deal) return res.status(404).json({ error: 'not found' });
   res.json(deal);
 });
 
-app.post('/api/deals/:id/note', (req, res) => {
-  const deal = addNote(req.params.id, req.body || {});
+app.post('/api/deals/:id/note', async (req, res) => {
+  const deal = await addNote(req.params.id, req.body || {});
   if (!deal) return res.status(404).json({ error: 'not found' });
   res.json(deal);
 });
 
 app.post('/api/deals/:id/email', async (req, res) => {
   const { template_id, made_by } = req.body;
-  const deal = getDeal(req.params.id);
+  const deal = await getDeal(req.params.id);
   if (!deal) return res.status(404).json({ error: 'deal not found' });
-  const contact = getContact(deal.contact_id);
+  const contact = await getContact(deal.contact_id);
   if (!contact?.email) return res.status(400).json({ error: 'contact has no email address' });
-  const template = getTemplate(template_id);
+  const template = await getTemplate(template_id);
   if (!template) return res.status(404).json({ error: 'template not found' });
 
   const vars = { name: contact.name, company: contact.company, agent: made_by || 'the team' };
@@ -254,7 +260,7 @@ app.post('/api/deals/:id/email', async (req, res) => {
 
   await sendEmail({ to: contact.email, subject, html, trackingToken: token });
 
-  const activity = logActivity({
+  const activity = await logActivity({
     deal_id: deal.id,
     contact_id: contact.id,
     type: 'email',
@@ -265,13 +271,13 @@ app.post('/api/deals/:id/email', async (req, res) => {
   res.status(201).json(activity);
 });
 
-app.get('/api/deals/:id/activities', (req, res) => res.json(listActivities({ deal_id: req.params.id })));
+app.get('/api/deals/:id/activities', async (req, res) => res.json(await listActivities({ deal_id: req.params.id })));
 
 // ---------- Calendar export ----------
-app.get('/api/deals/:id/calendar.ics', (req, res) => {
-  const deal = getDeal(req.params.id);
+app.get('/api/deals/:id/calendar.ics', async (req, res) => {
+  const deal = await getDeal(req.params.id);
   if (!deal || !deal.scheduled_at) return res.status(404).send('No scheduled meeting for this deal.');
-  const contact = getContact(deal.contact_id);
+  const contact = await getContact(deal.contact_id);
   const ics = buildIcs({
     uid: `deal-${deal.id}`,
     title: `Call with ${contact?.name || 'client'}`,
@@ -284,10 +290,10 @@ app.get('/api/deals/:id/calendar.ics', (req, res) => {
   res.send(ics);
 });
 
-app.get('/api/deals/:id/calendar-link', (req, res) => {
-  const deal = getDeal(req.params.id);
+app.get('/api/deals/:id/calendar-link', async (req, res) => {
+  const deal = await getDeal(req.params.id);
   if (!deal || !deal.scheduled_at) return res.status(404).json({ error: 'no scheduled meeting' });
-  const contact = getContact(deal.contact_id);
+  const contact = await getContact(deal.contact_id);
   res.json({
     googleCalendarUrl: googleCalendarLink({
       title: `Call with ${contact?.name || 'client'}`,
@@ -300,14 +306,17 @@ app.get('/api/deals/:id/calendar-link', (req, res) => {
 });
 
 // ---------- Summary dashboard (HubSpot-style "Your tasks / Outreach / Schedule") ----------
-app.get('/api/summary/tasks', (req, res) => {
-  const deals = listDeals();
+app.get('/api/summary/tasks', async (req, res) => {
+  const deals = await listDeals();
   const today = new Date().toDateString();
 
   const callsDue = deals.filter((d) => d.stage === 'new');
-  const emailsDue = deals.filter(
-    (d) => ['contacted', 'meeting_booked'].includes(d.stage) && !listActivities({ deal_id: d.id }).some((a) => a.type === 'email')
+  const emailsDueChecks = await Promise.all(
+    deals
+      .filter((d) => ['contacted', 'meeting_booked'].includes(d.stage))
+      .map(async (d) => ({ d, hasEmail: (await listActivities({ deal_id: d.id })).some((a) => a.type === 'email') }))
   );
+  const emailsDue = emailsDueChecks.filter((c) => !c.hasEmail).map((c) => c.d);
   const staleProposals = deals.filter((d) => {
     if (d.stage !== 'proposal') return false;
     const days = (Date.now() - new Date(d.updated_at).getTime()) / 86400000;
@@ -327,49 +336,51 @@ app.get('/api/summary/tasks', (req, res) => {
   });
 });
 
-app.get('/api/summary/activities', (req, res) => {
+app.get('/api/summary/activities', async (req, res) => {
   const limit = Number(req.query.limit) || 12;
-  const activities = listActivities()
-    .slice(0, limit)
-    .map((a) => ({ ...a, contact: a.contact_id ? getContact(a.contact_id) : null }));
-  res.json(activities);
+  const activities = (await listActivities()).slice(0, limit);
+  const withContacts = await Promise.all(
+    activities.map(async (a) => ({ ...a, contact: a.contact_id ? await getContact(a.contact_id) : null }))
+  );
+  res.json(withContacts);
 });
 
-app.get('/api/summary/schedule', (req, res) => {
+app.get('/api/summary/schedule', async (req, res) => {
   const date = req.query.date ? new Date(req.query.date) : new Date();
   const dayStr = date.toDateString();
-  const deals = listDeals({ stage: 'meeting_booked' })
-    .filter((d) => d.scheduled_at && new Date(d.scheduled_at).toDateString() === dayStr)
-    .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
-    .map((d) => ({ ...d, contact: getContact(d.contact_id) }));
-  res.json(deals);
+  const deals = (await listDeals({ stage: 'meeting_booked' })).filter(
+    (d) => d.scheduled_at && new Date(d.scheduled_at).toDateString() === dayStr
+  );
+  const withContacts = await Promise.all(deals.map(async (d) => ({ ...d, contact: await getContact(d.contact_id) })));
+  withContacts.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+  res.json(withContacts);
 });
 
 // ---------- Templates ----------
-app.get('/api/templates', (req, res) => res.json(listTemplates()));
-app.post('/api/templates', (req, res) => res.status(201).json(createTemplate(req.body || {})));
-app.patch('/api/templates/:id', (req, res) => {
-  const t = updateTemplate(req.params.id, req.body || {});
+app.get('/api/templates', async (req, res) => res.json(await listTemplates()));
+app.post('/api/templates', async (req, res) => res.status(201).json(await createTemplate(req.body || {})));
+app.patch('/api/templates/:id', async (req, res) => {
+  const t = await updateTemplate(req.params.id, req.body || {});
   if (!t) return res.status(404).json({ error: 'not found' });
   res.json(t);
 });
-app.delete('/api/templates/:id', (req, res) => {
-  deleteTemplate(req.params.id);
+app.delete('/api/templates/:id', async (req, res) => {
+  await deleteTemplate(req.params.id);
   res.sendStatus(204);
 });
 
 // ---------- Email open tracking pixel ----------
-app.get('/track/open/:token.png', (req, res) => {
-  markEmailOpened(req.params.token);
+app.get('/track/open/:token.png', async (req, res) => {
+  await markEmailOpened(req.params.token);
   res.set('Content-Type', 'image/png');
   res.set('Cache-Control', 'no-store');
   res.send(TRACKING_PIXEL);
 });
 
 // ---------- Analytics ----------
-app.get('/api/analytics', (req, res) => {
-  const deals = listDeals();
-  const activities = listActivities();
+app.get('/api/analytics', async (req, res) => {
+  const deals = await listDeals();
+  const activities = await listActivities();
 
   const dealsByStage = STAGES.map((stage) => ({
     stage,
@@ -404,7 +415,7 @@ app.get('/api/analytics', (req, res) => {
   const emailOpenRate = emailActivities.length ? Math.round((opened.length / emailActivities.length) * 100) : 0;
 
   res.json({
-    totalContacts: listContacts().length,
+    totalContacts: (await listContacts()).length,
     openDeals: deals.filter((d) => !['won', 'lost'].includes(d.stage)).length,
     wonThisMonth: wonThisMonth.length,
     revenueThisMonth,
@@ -417,15 +428,15 @@ app.get('/api/analytics', (req, res) => {
 });
 
 // ---------- In-app notifications (replaces the old WhatsApp pings) ----------
-app.get('/api/notifications', (req, res) => res.json(listNotifications({ unreadOnly: req.query.unread === 'true' })));
-app.get('/api/notifications/unread-count', (req, res) => res.json({ count: unreadCount() }));
-app.post('/api/notifications/:id/read', (req, res) => {
-  const n = markRead(req.params.id);
+app.get('/api/notifications', async (req, res) => res.json(await listNotifications({ unreadOnly: req.query.unread === 'true' })));
+app.get('/api/notifications/unread-count', async (req, res) => res.json({ count: await unreadCount() }));
+app.post('/api/notifications/:id/read', async (req, res) => {
+  const n = await markRead(req.params.id);
   if (!n) return res.status(404).json({ error: 'not found' });
   res.json(n);
 });
-app.post('/api/notifications/read-all', (req, res) => {
-  markAllRead();
+app.post('/api/notifications/read-all', async (req, res) => {
+  await markAllRead();
   res.json({ ok: true });
 });
 
@@ -447,24 +458,42 @@ app.get('/auth/zoom/callback', async (req, res) => {
   }
 });
 
-app.get('/api/zoom/status', (req, res) => {
-  res.json({ configured: zoom.isConfigured(), connected: zoom.isConnected(), email: zoom.connectedEmail() });
+app.get('/api/zoom/status', async (req, res) => {
+  res.json({ configured: zoom.isConfigured(), connected: await zoom.isConnected(), email: await zoom.connectedEmail() });
 });
 
-app.post('/api/zoom/disconnect', (req, res) => {
-  zoom.disconnect();
+app.post('/api/zoom/disconnect', async (req, res) => {
+  await zoom.disconnect();
+  res.json({ ok: true });
+});
+
+// ---------- Reminders ----------
+// Locally, a setInterval keeps checking in the background (see below).
+// On Vercel there's no persistent process to run a timer in, so this same
+// check is instead triggered by Vercel Cron hitting this route (configured
+// in vercel.json). Protected by CRON_SECRET so randoms can't spam it.
+app.get('/api/cron/reminders', async (req, res) => {
+  if (process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  await checkAndSendReminders();
   res.json({ ok: true });
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`schedule-hub listening on http://localhost:${PORT}`);
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`schedule-hub listening on http://localhost:${PORT}`);
+  });
 
-// Proactive reminders: check every 5 minutes for meetings coming up within
-// the reminder window (default 60 min) and ping the agent once per meeting.
-const REMINDER_CHECK_MS = 5 * 60 * 1000;
-checkAndSendReminders().catch((err) => console.error('[reminders] startup check failed', err));
-setInterval(() => {
-  checkAndSendReminders().catch((err) => console.error('[reminders] check failed', err));
-}, REMINDER_CHECK_MS);
+  // Proactive reminders: check every 5 minutes for meetings coming up within
+  // the reminder window (default 60 min) and raise a notification once per
+  // meeting. Only makes sense with a long-running process, hence the guard.
+  const REMINDER_CHECK_MS = 5 * 60 * 1000;
+  checkAndSendReminders().catch((err) => console.error('[reminders] startup check failed', err));
+  setInterval(() => {
+    checkAndSendReminders().catch((err) => console.error('[reminders] check failed', err));
+  }, REMINDER_CHECK_MS);
+}
+
+export default app;
