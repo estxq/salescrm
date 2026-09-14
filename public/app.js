@@ -258,44 +258,6 @@ const ACTIVITY_ICONS = {
   note: '📝',
 };
 
-function fmtCompact(iso) {
-  const d = new Date(iso);
-  const isToday = d.toDateString() === new Date().toDateString();
-  return isToday
-    ? d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-    : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
-
-function truncate(str, n) {
-  return str && str.length > n ? `${str.slice(0, n - 1)}…` : str || '';
-}
-
-async function renderActivitiesCard() {
-  const el = $('#activities-body');
-  await withRetry(el, async () => {
-    const activities = await api('/api/summary/activities?limit=12');
-    if (!activities.length) {
-      el.innerHTML = '<div class="empty">No activity yet.</div>';
-      return;
-    }
-    el.innerHTML = `<div class="activity-feed">${activities
-      .map(
-        (a) => `
-        <div class="activity-item">
-          <div class="activity-icon">${ACTIVITY_ICONS[a.type] || '•'}</div>
-          <div class="activity-body">
-            <div class="activity-top">
-              <span class="activity-name">${a.contact ? a.contact.name : 'System'}</span>
-              <span class="a-when">${fmtCompact(a.at)}</span>
-            </div>
-            <div class="activity-text" title="${(a.summary || '').replace(/"/g, '&quot;')}">${truncate(a.summary, 64)}</div>
-          </div>
-        </div>`
-      )
-      .join('')}</div>`;
-  });
-}
-
 async function renderScheduleCard() {
   $('#sched-date').textContent = scheduleDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   const el = $('#schedule-body');
@@ -334,7 +296,7 @@ $('#sched-next').addEventListener('click', () => {
 });
 
 async function renderSummaryTab() {
-  await Promise.all([renderTasksCard(), renderActivitiesCard(), renderScheduleCard()]);
+  await Promise.all([renderTasksCard(), renderScheduleCard()]);
 }
 
 // =====================================================================
