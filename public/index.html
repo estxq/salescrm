@@ -125,20 +125,22 @@
           <h2>Contacts</h2>
           <div class="row-actions">
             <input id="contact-search" placeholder="Search contacts…" />
-            <button id="import-leads-btn">Import leads from sheet</button>
+            <button id="import-leads-btn" class="add-contact-control">Import leads from sheet</button>
           </div>
         </div>
         <div id="contacts-list" class="meeting-list"></div>
 
-        <div class="section-head"><h2>New contact</h2></div>
-        <form id="contact-form" class="card form">
-          <label>Name <input name="name" required /></label>
-          <label>Phone <input name="phone" placeholder="6591234567" /></label>
-          <label>Email <input name="email" type="email" placeholder="client@example.com" /></label>
-          <label>Company <input name="company" /></label>
-          <label>Notes <textarea name="notes" rows="2"></textarea></label>
-          <button type="submit">Add contact + create deal</button>
-        </form>
+        <div id="add-contact-block" class="add-contact-control">
+          <div class="section-head"><h2>New contact</h2></div>
+          <form id="contact-form" class="card form">
+            <label>Name <input name="name" required /></label>
+            <label>Phone <input name="phone" placeholder="6591234567" /></label>
+            <label>Email <input name="email" type="email" placeholder="client@example.com" /></label>
+            <label>Company <input name="company" /></label>
+            <label>Notes <textarea name="notes" rows="2"></textarea></label>
+            <button type="submit">Add contact + create deal</button>
+          </form>
+        </div>
       </section>
 
       <!-- TEMPLATES -->

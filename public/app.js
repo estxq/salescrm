@@ -78,6 +78,11 @@ function applyRoleVisibility(role) {
   const activeBtn = document.querySelector('.page-head .tab-btn.active');
   if (activeBtn && activeBtn.hidden) activateTab('summary');
   renderZoomStatus(); // Zoom connect/disconnect controls are agent-only
+  // Adding contacts is Caller's job (they're the one bringing in fresh
+  // leads) — Agent only needs to look someone up, not create new records.
+  $$('.add-contact-control').forEach((el) => {
+    el.hidden = role === 'agent';
+  });
 }
 
 async function loadUsers() {

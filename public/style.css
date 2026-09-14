@@ -214,6 +214,7 @@ body {
 }
 .conn-banner[hidden] { display: none !important; }
 .tab-btn[hidden] { display: none !important; }
+.add-contact-control[hidden] { display: none !important; }
 .conn-banner button {
   margin-left: 8px;
   font-size: 12px;
