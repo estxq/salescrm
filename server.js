@@ -287,7 +287,7 @@ app.post('/api/zoom-meetings/:meetingId/request-reschedule', async (req, res) =>
     contact_id: null,
     message: `${requested_by || 'Someone'} asked to reschedule "${
       topic || 'a Zoom meeting'
-    }" (${when}): "${remark}" — please move it directly in Zoom.`,
+    }" (${when}): "${remark}". PA please move it directly in Zoom.`,
   });
   res.json({ ok: true });
 });
