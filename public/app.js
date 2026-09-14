@@ -569,6 +569,16 @@ async function openDealModal(id) {
       <button id="m-log-call" class="primary">Log call</button>
     </div>
 
+    ${
+      deal.stage === 'new' || deal.stage === 'contacted'
+        ? `<div class="section-head"><h2>Update progress</h2></div>
+    <div class="mactions">
+      ${deal.stage === 'new' ? '<button id="m-mark-interested" class="primary">Interested</button>' : ''}
+      <button id="m-mark-not-interested" class="danger">Not interested</button>
+    </div>`
+        : ''
+    }
+
     <div class="section-head"><h2>Remarks</h2></div>
     <div class="mactions">
       <input id="m-remark" placeholder="Write a remark…" style="flex:1" />
@@ -662,6 +672,25 @@ async function openDealModal(id) {
     });
     openDealModal(id); refresh();
   });
+
+  if (deal.stage === 'new') {
+    $('#m-mark-interested').addEventListener('click', async () => {
+      await api(`/api/deals/${id}/stage`, {
+        method: 'POST',
+        body: JSON.stringify({ stage: 'contacted', changed_by: currentUser() }),
+      });
+      closeModal(); refresh();
+    });
+  }
+  if (deal.stage === 'new' || deal.stage === 'contacted') {
+    $('#m-mark-not-interested').addEventListener('click', async () => {
+      await api(`/api/deals/${id}/stage`, {
+        method: 'POST',
+        body: JSON.stringify({ stage: 'lost', changed_by: currentUser() }),
+      });
+      closeModal(); refresh();
+    });
+  }
 
   $('#m-add-remark').addEventListener('click', async () => {
     const note = $('#m-remark').value.trim();
