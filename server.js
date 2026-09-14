@@ -2,6 +2,11 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+// Express 4 does NOT catch rejected promises from async route handlers —
+// an unhandled rejection just leaves the request hanging forever with no
+// response and no error logged. This patches Express so those rejections
+// reach the error-handling middleware below instead.
+import 'express-async-errors';
 
 import { listUsers, createUser } from './lib/users.js';
 import { listContacts, getContact, findContactByPhone, createContact, updateContact } from './lib/contacts.js';
@@ -478,6 +483,14 @@ app.get('/api/cron/reminders', async (req, res) => {
   }
   await checkAndSendReminders();
   res.json({ ok: true });
+});
+
+// Catches anything that reaches here — a failed Redis call, a bad Zoom
+// response, whatever — and returns a clean error instead of hanging.
+app.use((err, req, res, next) => {
+  console.error('[unhandled]', err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
 const PORT = process.env.PORT || 3000;
