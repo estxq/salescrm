@@ -362,8 +362,10 @@ async function renderMeetingsTab() {
         <div class="mt-owner">${isZoomOnly ? '<span class="hint">Zoom</span>' : avatarHtml(d.owner)}</div>
         <div class="mt-actions">${
           isZoomOnly
-            ? `<button class="zoom-resched-request-btn" data-id="${d.id}">Request reschedule</button>
+            ? currentRole === 'agent'
+              ? `<button class="zoom-resched-request-btn" data-id="${d.id}">Request reschedule</button>
                <button class="zoom-outcome-btn" data-id="${d.id}">Log outcome</button>`
+              : ''
             : `<button class="resched-btn" data-id="${d.id}">Reschedule</button>`
         }</div>
       </div>`;
