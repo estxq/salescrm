@@ -1,0 +1,5 @@
+[
+  { "row": 2, "name": "Jane Tan", "phone": "6591234567", "notes": "Interested in premium plan", "status": "new" },
+  { "row": 3, "name": "Marcus Lee", "phone": "6598765432", "notes": "Referred by existing client", "status": "new" },
+  { "row": 4, "name": "Priya Nair", "phone": "6590001111", "notes": "Called before, no answer", "status": "new" }
+]

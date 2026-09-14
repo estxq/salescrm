@@ -1,0 +1,7 @@
+node_modules/
+.env
+
+# Runtime data — local state, not source. Keep the sample leads seed only.
+data/*.json
+!data/leads.sample.json
+data/outbox/

@@ -1,0 +1,19 @@
+{
+  "name": "schedule-hub",
+  "version": "1.0.0",
+  "description": "Structured booking hub for caller / PA / agent workflow, replacing WhatsApp-group scheduling with a dashboard + 1:1 WhatsApp notifications.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "nodemailer": "^6.9.14"
+  }
+}

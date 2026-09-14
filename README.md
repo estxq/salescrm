@@ -1,0 +1,127 @@
+# Schedule Hub
+
+A small in-house CRM for a caller / PA / agent team, inspired by the parts of
+HubSpot Sales Hub that were actually going to get used: a contact list, a
+deal pipeline, call logging, email templates with open tracking, real Zoom
+meetings, and a reporting dashboard. Everything — scheduling, remarks,
+reschedule requests, notifications — happens on this dashboard. There is no
+external chat integration; it's a single shared source of truth.
+
+## What's in it
+
+- **Role-based views**: switching "Acting as" between Caller / PA / Agent
+  changes which tabs are visible, matching what each role actually does —
+  Caller sees Summary, Pipeline, Contacts; PA adds Meetings + Templates;
+  Agent adds Meetings + Analytics instead of Templates. The "Connect Zoom"
+  control only appears for Agent, since it's their own personal account —
+  everyone else just sees a read-only connected/not-connected status. This
+  is a decluttering convenience, not access control: there's no real auth,
+  so the underlying API is open to whichever role is selected.
+- **Summary dashboard** (the landing page): a HubSpot-style layout — dark
+  sidebar, "Sales | \<you\>" header — with three columns: **Your tasks**
+  (high priority count, calls to make, follow-up emails due, stale
+  proposals, meetings today, reschedule requests — each clickable), **Your
+  outreach activities** (a live feed across every deal), and **Schedule** (a
+  day-by-day view with prev/next navigation, so today's meetings are one
+  glance away).
+- **Pipeline** (kanban): New Lead → Contacted → Meeting Booked → Proposal →
+  Won / Lost. Drag a card between columns, or click it to open full deal
+  detail — and a complete timestamped activity timeline, so there's nothing
+  to scroll back through.
+- **Zoom, on the agent's own account**: connect once ("Connect Zoom" in the
+  top bar), and scheduling a meeting automatically creates a real Zoom
+  meeting on that account — no copy-pasting links. Rescheduling moves the
+  same Zoom meeting's time via the API, so the join link never changes.
+  Marking a deal Lost deletes its Zoom meeting to keep the calendar clean.
+  Without Zoom connected, scheduling falls back to a manual link field.
+- **In-app notifications**: a bell icon in the top bar with an unread count.
+  New bookings, reschedule requests, confirmed reschedules, and upcoming-
+  meeting reminders all land here — click one to jump straight to the deal.
+- **Call progress**: every deal tracks the outcome of its most recent call
+  (Booked / Connected / Voicemail / No answer), set via "Call progress" in
+  the deal modal, shown as a "📞" badge on the pipeline card and inside the
+  deal.
+- **Remarks**: a plain "Remarks" box on every deal for anything that doesn't
+  fit a call log or follow-up — logged straight to the activity timeline
+  with who wrote it and when.
+- **Reschedule requests, not silent edits**: the agent can't rebook the PA's
+  calendar, so "Agent: ask to reschedule" doesn't change the time itself —
+  it flags the deal with a remark and raises a notification for the PA. The
+  deal card gets a "⚠ reschedule requested" badge and the Summary tasks
+  column counts it, until the PA picks the actual new time via "PA: confirm
+  new time" — which is what notifies the agent and caller of the change.
+- **Meeting follow-up**: once a meeting is booked, the deal modal shows a
+  "Meeting follow-up" dropdown — **Ready to proceed** (→ Proposal), **Needs
+  another follow-up** (→ back to Contacted), or **Not interested** (→ Lost)
+  — plus an optional note.
+- **Proactive reminders**: a background check runs every 5 minutes (and
+  once at startup) and raises a notification when a scheduled meeting is
+  within `REMINDER_WINDOW_MIN` (default 60) minutes out. Each meeting is
+  reminded once; rescheduling resets it.
+- **Calendar export**: every scheduled meeting also gets a "Add to Google
+  Calendar" link and a downloadable `.ics` file, for anyone who wants it in
+  their own calendar app too.
+- **Templates + email open tracking**: reusable templates with `{{name}}` /
+  `{{company}}` / `{{agent}}` placeholders; each sent email embeds a 1x1
+  tracking pixel, and the deal timeline shows "(opened)" once it fires.
+- **Contacts**: search, add manually, edit, or import leads from a Google
+  Sheet (dedupes by phone).
+- **Analytics**: contacts, open deals, won-this-month + revenue, win rate,
+  email open rate, a deals-by-stage bar chart, and a calls-per-day line
+  chart — plain inline SVG, no charting library or external CDN.
+
+## Running it
+
+```bash
+npm install
+npm start
+```
+
+Then open http://localhost:3000 (or whatever `PORT` is set to). It works
+immediately with zero config: leads come from `data/leads.sample.json`,
+outbound emails are saved as `.html` files under `data/outbox/` instead of
+actually sent, and scheduling falls back to a manual Zoom-link field until
+you connect a real Zoom account.
+
+## Going live
+
+Copy `.env.example` to `.env` and fill in:
+
+- **Zoom**: create an OAuth app at marketplace.zoom.us (Develop → Build App
+  → General App), set its redirect URL to match `ZOOM_REDIRECT_URI`, and
+  grant it meeting read/write/update/delete + user-read scopes. Put the
+  Client ID/Secret in `.env`, restart, then open `/auth/zoom` in the app and
+  sign in with **the agent's own Zoom account** to connect it. See the
+  comments in `.env.example` for exact scope names.
+- **Email**: any SMTP account (Gmail app password, SendGrid, Postmark, etc)
+  — set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `FROM_EMAIL`.
+- **Google Sheets**: make the leads sheet "anyone with the link can view",
+  enable the Sheets API on a Google Cloud project, create an API key, set
+  `GOOGLE_SHEETS_ID` + `GOOGLE_SHEETS_API_KEY`. Expected columns: Name,
+  Phone, Notes, Status.
+- **Reminders / calendar links**: set `BASE_URL` to your real public URL
+  once this isn't running on localhost, and `REMINDER_WINDOW_MIN` to change
+  how far ahead the reminder notification fires (default 60 minutes).
+
+## If something looks stuck on "Loading…"
+
+Every API call surfaces failures with a red banner at the top of the page
+("Connection issue — retrying in the background") instead of failing
+silently — if you see a card stuck loading with no banner, that's a real
+bug worth reporting, not just the server being temporarily restarted. Each
+Summary card also fails independently with its own "retry" link, so one
+slow or broken endpoint can't freeze the other two.
+
+## Data model
+
+Plain JSON files under `data/` (`contacts.json`, `deals.json`,
+`activities.json`, `templates.json`, `users.json`, `notifications.json`,
+`zoom_account.json`) via `lib/db.js`'s tiny generic collection store — good
+enough for one small team. Swap it for a real database if this grows past a
+few thousand records or more than one process needs to write concurrently.
+
+There's no login/password system — "Acting as" in the top bar is just a
+named identity picker (persisted in your browser) used to attribute calls,
+notes, and emails to a person. Add real auth before putting this on the
+open internet. The connected Zoom account is a single shared credential for
+the whole team (it's the agent's own account, not per-user).

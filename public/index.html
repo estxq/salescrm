@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Schedule Hub</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="side-workspace">
+      <div class="sidebar-logo">SH</div>
+      <div class="side-workspace-name">Schedule Hub</div>
+    </div>
+    <nav class="sidebar-nav">
+      <button class="side-item tab-btn active" data-tab="summary"><span class="side-item-icon">⌂</span><span>Summary</span></button>
+      <button class="side-item tab-btn" data-tab="pipeline"><span class="side-item-icon">◧</span><span>Pipeline</span></button>
+      <button class="side-item tab-btn" data-tab="meetings"><span class="side-item-icon">▣</span><span>Meetings</span></button>
+      <button class="side-item tab-btn" data-tab="templates"><span class="side-item-icon">✉</span><span>Templates</span></button>
+      <button class="side-item tab-btn" data-tab="analytics"><span class="side-item-icon">▤</span><span>Analytics</span></button>
+    </nav>
+    <div class="side-section-label">Records</div>
+    <nav class="sidebar-nav">
+      <button class="side-item tab-btn" data-tab="contacts"><span class="side-item-icon">☺</span><span>Contacts</span></button>
+    </nav>
+  </aside>
+
+  <div class="app-main">
+    <header class="topbar">
+      <div class="topbar-search"><input id="global-search" placeholder="Search contacts…" /></div>
+      <div class="topbar-right">
+        <div id="zoom-status" class="zoom-status"></div>
+        <div class="notif-wrap">
+          <button id="notif-bell" class="notif-bell">🔔<span id="notif-count" class="notif-count" hidden>0</span></button>
+          <div id="notif-dropdown" class="notif-dropdown" hidden>
+            <div class="notif-dropdown-head">
+              <strong>Notifications</strong>
+              <button id="notif-mark-all">Mark all read</button>
+            </div>
+            <div id="notif-list" class="notif-list"></div>
+          </div>
+        </div>
+        <label class="acting-as-pill">
+          <select id="current-user"></select>
+        </label>
+      </div>
+    </header>
+
+    <div class="page-head">
+      <h1>Sales <span class="sep">|</span> <span id="page-user-name">—</span></h1>
+      <nav class="tabs">
+        <button class="tab-btn active" data-tab="summary">Summary</button>
+        <button class="tab-btn" data-tab="pipeline">Pipeline</button>
+        <button class="tab-btn" data-tab="meetings">Meetings</button>
+        <button class="tab-btn" data-tab="contacts">Contacts</button>
+        <button class="tab-btn" data-tab="templates">Templates</button>
+        <button class="tab-btn" data-tab="analytics">Analytics</button>
+      </nav>
+    </div>
+
+    <div id="conn-banner" class="conn-banner" hidden>
+      Connection issue — retrying in the background. <button id="conn-retry">Retry now</button>
+    </div>
+
+    <main>
+      <!-- SUMMARY -->
+      <section id="tab-summary" class="tab-panel active">
+        <div class="summary-grid">
+          <div class="card summary-col">
+            <h3>Your tasks</h3>
+            <div id="tasks-body">Loading…</div>
+          </div>
+          <div class="card summary-col">
+            <h3>Your outreach activities</h3>
+            <div id="activities-body">Loading…</div>
+          </div>
+          <div class="card summary-col schedule-col">
+            <div class="schedule-head">
+              <h3>Schedule</h3>
+              <div class="schedule-nav">
+                <button id="sched-prev">‹</button>
+                <span id="sched-date"></span>
+                <button id="sched-next">›</button>
+              </div>
+            </div>
+            <div id="schedule-body">Loading…</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PIPELINE -->
+      <section id="tab-pipeline" class="tab-panel">
+        <div id="next-card" class="next-card">Loading…</div>
+        <p class="hint">Drag a card between columns to change stage, or click it for details.</p>
+        <div id="board" class="board"></div>
+      </section>
+
+      <!-- MEETINGS -->
+      <section id="tab-meetings" class="tab-panel">
+        <div class="meetings-toolbar">
+          <div class="meetings-subtabs">
+            <button class="meet-subtab active" data-when="all">All</button>
+            <button class="meet-subtab" data-when="upcoming">Upcoming</button>
+            <button class="meet-subtab" data-when="past">Past</button>
+          </div>
+          <button id="meetings-sort" class="meetings-sort">↑ Oldest first</button>
+        </div>
+        <div class="meetings-table">
+          <div class="meetings-row meetings-head">
+            <div class="mt-name">Name</div>
+            <div class="mt-join">Join</div>
+            <div class="mt-date">Date</div>
+            <div class="mt-attendee">Attendee</div>
+            <div class="mt-owner">Owner</div>
+            <div class="mt-actions"></div>
+          </div>
+          <div id="meetings-body"></div>
+        </div>
+      </section>
+
+      <!-- CONTACTS -->
+      <section id="tab-contacts" class="tab-panel">
+        <div class="section-head">
+          <h2>Contacts</h2>
+          <div class="row-actions">
+            <input id="contact-search" placeholder="Search contacts…" />
+            <button id="import-leads-btn">Import leads from sheet</button>
+          </div>
+        </div>
+        <div id="contacts-list" class="meeting-list"></div>
+
+        <div class="section-head"><h2>New contact</h2></div>
+        <form id="contact-form" class="card form">
+          <label>Name <input name="name" required /></label>
+          <label>Phone <input name="phone" placeholder="6591234567" /></label>
+          <label>Email <input name="email" type="email" placeholder="client@example.com" /></label>
+          <label>Company <input name="company" /></label>
+          <label>Notes <textarea name="notes" rows="2"></textarea></label>
+          <button type="submit">Add contact + create deal</button>
+        </form>
+      </section>
+
+      <!-- TEMPLATES -->
+      <section id="tab-templates" class="tab-panel">
+        <div class="section-head"><h2>Email templates</h2>
+          <span class="hint">Use {{name}}, {{company}}, {{agent}} as placeholders.</span>
+        </div>
+        <div id="templates-list" class="meeting-list"></div>
+
+        <div class="section-head"><h2>New template</h2></div>
+        <form id="template-form" class="card form">
+          <label>Name <input name="name" required /></label>
+          <label>Subject <input name="subject" required /></label>
+          <label>Body (HTML ok) <textarea name="body" rows="5" required></textarea></label>
+          <button type="submit">Save template</button>
+        </form>
+      </section>
+
+      <!-- ANALYTICS -->
+      <section id="tab-analytics" class="tab-panel">
+        <div id="stat-cards" class="stat-cards"></div>
+        <div class="charts-row">
+          <div class="card chart-card">
+            <h3>Deals by stage</h3>
+            <div id="stage-chart"></div>
+          </div>
+          <div class="card chart-card">
+            <h3>Calls logged (last 14 days)</h3>
+            <div id="calls-chart"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<div id="modal-overlay" class="modal-overlay" hidden>
+  <div class="modal">
+    <button id="modal-close" class="modal-close">×</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
