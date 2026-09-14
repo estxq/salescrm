@@ -421,6 +421,7 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 .upcoming-item .u-when { color: var(--muted); font-size: 12px; width: 70px; flex-shrink: 0; }
 .upcoming-item .u-name { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .upcoming-item .u-join { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--accent-weak); color: var(--accent); text-decoration: none; flex-shrink: 0; }
+.upcoming-item .u-whatsapp { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: #e6f7ec; color: #1a7d3f; text-decoration: none; flex-shrink: 0; }
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
@@ -518,6 +519,19 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 .mt-actions .resched-btn:hover,
 .mt-actions .zoom-resched-request-btn:hover,
 .mt-actions .zoom-outcome-btn:hover { background: var(--bg); }
+.mt-actions .mt-whatsapp-btn {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #bfe6cc;
+  background: #e6f7ec;
+  color: #1a7d3f;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  text-align: center;
+}
+.mt-actions .mt-whatsapp-btn:hover { background: #d3f0dc; }
 .inline-resched,
 .inline-zoom-action {
   grid-column: 1 / -1;
@@ -557,6 +571,17 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
   text-decoration: none;
 }
 .join-btn.join-disabled { background: #f1f2f4; color: var(--muted); cursor: default; }
+.whatsapp-btn {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: #e6f7ec;
+  color: #1a7d3f;
+  text-decoration: none;
+}
+.whatsapp-btn:hover { background: #d3f0dc; }
 .avatar {
   display: inline-flex;
   align-items: center;

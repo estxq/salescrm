@@ -40,6 +40,24 @@ function fmtWhen(iso) {
   });
 }
 
+// The team confirms meetings over WhatsApp, not email — this builds a
+// click-to-chat link (wa.me) prefilled with a confirmation message so
+// whoever's calling the client can send it in one tap instead of typing
+// the same thing out every time.
+function whatsappLink(phone, message) {
+  if (!phone) return null;
+  const digits = phone.replace(/[^0-9]/g, '');
+  if (!digits) return null;
+  return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+}
+
+function confirmMeetingMessage(name, scheduledAt, zoomLink) {
+  const when = new Date(scheduledAt).toLocaleString(undefined, {
+    weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
+  return `Hi ${name || 'there'}, just confirming our meeting on ${when}.${zoomLink ? ` Zoom link: ${zoomLink}` : ''}`;
+}
+
 function currentUser() {
   const sel = $('#current-user');
   return sel && sel.value ? sel.value : 'someone';
@@ -375,17 +393,22 @@ async function renderCalendarUpcoming() {
       .map((m) => {
         const isZoomOnly = m.source === 'zoom';
         const name = isZoomOnly ? m.title : m.contact?.name ? `Call with ${m.contact.name}` : 'Meeting';
+        const waLink =
+          !isZoomOnly && m.contact?.phone
+            ? whatsappLink(m.contact.phone, confirmMeetingMessage(m.contact.name, m.scheduled_at, m.zoom_link))
+            : null;
         return `
         <div class="upcoming-item" data-idx="${upcoming.indexOf(m)}">
           <span class="u-when">${fmtTime(m.scheduled_at)}</span>
           <span class="u-name">${name}</span>
+          ${waLink ? `<a href="${waLink}" target="_blank" rel="noopener" class="u-whatsapp">💬 Text</a>` : ''}
           ${m.zoom_link ? `<a href="${m.zoom_link}" target="_blank" rel="noopener" class="u-join">Join</a>` : ''}
         </div>`;
       })
       .join('');
     $$('#calendar-upcoming-list .upcoming-item').forEach((item) => {
       item.addEventListener('click', (e) => {
-        if (e.target.closest('.u-join')) return;
+        if (e.target.closest('.u-join') || e.target.closest('.u-whatsapp')) return;
         openCalendarMeeting(upcoming[Number(item.dataset.idx)]);
       });
     });
@@ -528,7 +551,14 @@ async function renderMeetingsTab() {
               ? `<button class="zoom-resched-request-btn" data-id="${d.id}">Request reschedule</button>
                <button class="zoom-outcome-btn" data-id="${d.id}">Log outcome</button>`
               : ''
-            : `<button class="resched-btn" data-id="${d.id}">Reschedule</button>`
+            : `${
+                d.contact?.phone
+                  ? `<a href="${whatsappLink(
+                      d.contact.phone,
+                      confirmMeetingMessage(d.contact.name, d.scheduled_at, d.zoom_link)
+                    )}" target="_blank" rel="noopener" class="mt-whatsapp-btn">💬 Text</a>`
+                  : ''
+              }<button class="resched-btn" data-id="${d.id}">Reschedule</button>`
         }</div>
       </div>`;
     })
@@ -536,7 +566,13 @@ async function renderMeetingsTab() {
   $$('#meetings-body .meetings-row').forEach((row) => {
     row.addEventListener('click', (e) => {
       if (row.dataset.zoomOnly) return; // no linked deal to open
-      if (e.target.closest('.join-btn') || e.target.closest('.resched-btn') || e.target.closest('.inline-resched')) return;
+      if (
+        e.target.closest('.join-btn') ||
+        e.target.closest('.resched-btn') ||
+        e.target.closest('.inline-resched') ||
+        e.target.closest('.mt-whatsapp-btn')
+      )
+        return;
       openDealModal(row.dataset.id);
     });
   });
@@ -794,6 +830,14 @@ async function openDealModal(id) {
     <div class="mnotes">${contact.phone || ''} ${contact.email ? '· ' + contact.email : ''}</div>
     ${deal.last_call_outcome ? `<div class="badge-call" style="margin-top:6px">📞 Last call: ${CALL_OUTCOME_LABELS[deal.last_call_outcome] || deal.last_call_outcome}</div>` : ''}
     ${deal.zoom_link ? `<div class="mnotes" style="margin-top:6px">Zoom link: <a href="${deal.zoom_link}" target="_blank" rel="noopener">${deal.zoom_link}</a></div>` : ''}
+    ${
+      contact.phone && deal.scheduled_at
+        ? `<a href="${whatsappLink(
+            contact.phone,
+            confirmMeetingMessage(contact.name, deal.scheduled_at, deal.zoom_link)
+          )}" target="_blank" rel="noopener" class="whatsapp-btn" style="margin-top:8px">💬 Text to confirm</a>`
+        : ''
+    }
 
     ${
       isAgent
