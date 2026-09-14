@@ -170,18 +170,35 @@ async function renderNotifDropdown() {
       (n) => `
       <div class="notif-item ${n.read_at ? '' : 'unread'}" data-id="${n.id}" data-deal="${n.deal_id || ''}">
         <div class="n-msg">${n.message}</div>
-        <div class="n-when">${fmtWhen(n.created_at)}</div>
+        <div class="n-row-bottom">
+          <div class="n-when">${fmtWhen(n.created_at)}</div>
+          <button class="notif-done-btn" data-id="${n.id}">Mark as done</button>
+        </div>
       </div>`
     )
     .join('');
   $$('#notif-list .notif-item').forEach((item) => {
-    item.addEventListener('click', async () => {
+    item.addEventListener('click', async (e) => {
+      if (e.target.closest('.notif-done-btn')) return;
       await api(`/api/notifications/${item.dataset.id}/read`, { method: 'POST' });
       $('#notif-dropdown').hidden = true;
       refreshNotifCount();
       if (item.dataset.deal) {
         activateTab('pipeline');
         openDealModal(item.dataset.deal);
+      }
+    });
+  });
+  // Mark as done permanently removes it — unlike a plain read/click, it
+  // should never resurface, not even as a read item in the list.
+  $$('#notif-list .notif-done-btn').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await api(`/api/notifications/${btn.dataset.id}`, { method: 'DELETE' });
+      btn.closest('.notif-item').remove();
+      refreshNotifCount();
+      if (!$('#notif-list .notif-item')) {
+        $('#notif-list').innerHTML = '<div class="empty">No notifications yet.</div>';
       }
     });
   });

@@ -33,7 +33,7 @@ import { listTemplates, getTemplate, createTemplate, updateTemplate, deleteTempl
 import { renderTemplate, newTrackingToken, sendEmail, TRACKING_PIXEL } from './lib/mailer.js';
 import { fetchLeads } from './lib/sheets.js';
 import { notifyScheduled, notifyRescheduleConfirmed, notifyRescheduleRequested } from './lib/notify.js';
-import { listNotifications, markRead, markAllRead, unreadCount, deleteNotificationsFor, createNotification } from './lib/notifications.js';
+import { listNotifications, markRead, markAllRead, unreadCount, deleteNotificationsFor, deleteNotification, createNotification } from './lib/notifications.js';
 import { buildIcs, googleCalendarLink } from './lib/calendar.js';
 import { checkAndSendReminders } from './lib/reminders.js';
 import * as zoom from './lib/zoom.js';
@@ -530,6 +530,11 @@ app.post('/api/notifications/:id/read', async (req, res) => {
   const n = await markRead(req.params.id);
   if (!n) return res.status(404).json({ error: 'not found' });
   res.json(n);
+});
+app.delete('/api/notifications/:id', async (req, res) => {
+  const removed = await deleteNotification(req.params.id);
+  if (!removed) return res.status(404).json({ error: 'not found' });
+  res.json({ ok: true });
 });
 app.post('/api/notifications/read-all', async (req, res) => {
   await markAllRead();

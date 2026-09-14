@@ -180,6 +180,18 @@ body {
 .notif-item.unread { background: var(--accent-weak); }
 .notif-item .n-msg { margin-bottom: 3px; }
 .notif-item .n-when { color: var(--muted); font-size: 11px; }
+.notif-item .n-row-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.notif-done-btn {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.notif-done-btn:hover { background: var(--bg); color: var(--text); }
 
 /* ---------- Page head (title + tabs) ---------- */
 .page-head {
