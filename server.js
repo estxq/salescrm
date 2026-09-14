@@ -21,6 +21,7 @@ import {
   moveStage,
   proposeTime,
   scheduleMeeting,
+  cancelMeeting,
   rescheduleMeeting,
   requestReschedule,
   logFollowUp,
@@ -263,6 +264,16 @@ app.post('/api/deals/:id/schedule', async (req, res) => {
   res.json(deal);
 });
 
+// Deletes the meeting (cancels the real Zoom meeting first) but keeps the
+// contact/deal — distinct from deleting the contact entirely.
+app.delete('/api/deals/:id/meeting', async (req, res) => {
+  const before = await getDeal(req.params.id);
+  if (!before) return res.status(404).json({ error: 'not found' });
+  await cleanupZoomMeeting(before);
+  const deal = await cancelMeeting(req.params.id, { changed_by: req.body?.changed_by });
+  res.json(deal);
+});
+
 app.post('/api/deals/:id/reschedule', async (req, res) => {
   const { scheduled_at, zoom_link, changed_by } = req.body;
   if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at required' });
@@ -332,6 +343,19 @@ app.post('/api/zoom-meetings/:meetingId/outcome', async (req, res) => {
       note ? ` — ${note}` : ''
     }.`,
   });
+  res.json({ ok: true });
+});
+
+// Deletes a meeting booked directly in Zoom — this actually cancels it on
+// Zoom for every invitee, unlike the CRM version which just clears the
+// deal's scheduling fields. Confirmed on the frontend before this fires.
+app.delete('/api/zoom-meetings/:meetingId', async (req, res) => {
+  if (!(await zoom.isConnected())) return res.status(400).json({ error: 'Zoom not connected' });
+  try {
+    await zoom.deleteMeeting(req.params.meetingId);
+  } catch (err) {
+    return res.status(502).json({ error: `Zoom delete failed: ${err.message}` });
+  }
   res.json({ ok: true });
 });
 

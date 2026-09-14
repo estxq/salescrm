@@ -557,7 +557,8 @@ async function renderMeetingsTab() {
           isZoomOnly
             ? currentRole === 'agent'
               ? `<button class="zoom-resched-request-btn" data-id="${d.id}">Request reschedule</button>
-               <button class="zoom-outcome-btn" data-id="${d.id}">Log outcome</button>`
+               <button class="zoom-outcome-btn" data-id="${d.id}">Log outcome</button>
+               <button class="zoom-delete-btn" data-id="${d.id}">Delete meeting</button>`
               : ''
             : `${
                 d.contact?.phone
@@ -667,6 +668,16 @@ async function renderMeetingsTab() {
         form.remove();
         alert('Logged.');
       });
+    });
+  });
+  $$('#meetings-body .zoom-delete-btn').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const meeting = deals.find((d) => String(d.id) === btn.dataset.id);
+      if (!confirm(`Delete "${meeting?.title || 'this meeting'}"? This cancels it in Zoom for everyone invited.`)) return;
+      const zoomId = btn.dataset.id.replace('zoom-', '');
+      await api(`/api/zoom-meetings/${zoomId}`, { method: 'DELETE' });
+      renderMeetingsTab();
     });
   });
   // A real <input type="datetime-local"> instead of window.prompt() — prompt()
@@ -921,6 +932,7 @@ async function openDealModal(id) {
       }" />
       ${ZOOM_STATUS.connected ? '' : `<input id="m-zoom" placeholder="Zoom link" value="${deal.zoom_link || ''}" />`}
       <button id="m-schedule" class="primary">${deal.stage === 'meeting_booked' ? 'Reschedule' : 'Schedule'}</button>
+      ${deal.stage === 'meeting_booked' ? '<button id="m-delete-meeting" class="danger">Delete meeting</button>' : ''}
     </div>
     ${
       ZOOM_STATUS.connected
@@ -1043,6 +1055,14 @@ async function openDealModal(id) {
       const payload = { scheduled_at: new Date(time).toISOString(), changed_by: currentUser() };
       if (zoomLink) payload.zoom_link = zoomLink;
       await api(`/api/deals/${id}/${endpoint}`, { method: 'POST', body: JSON.stringify(payload) });
+      closeModal(); refresh();
+    });
+  }
+
+  if ($('#m-delete-meeting')) {
+    $('#m-delete-meeting').addEventListener('click', async () => {
+      if (!confirm('Delete this meeting? This cancels the Zoom meeting and removes it from the calendar — the contact and deal stay.')) return;
+      await api(`/api/deals/${id}/meeting`, { method: 'DELETE', body: JSON.stringify({ changed_by: currentUser() }) });
       closeModal(); refresh();
     });
   }
