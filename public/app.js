@@ -1167,6 +1167,7 @@ async function renderContactsTab(q) {
         <input class="ie-email" placeholder="Email" value="${c.email || ''}" />
         <button class="ie-save primary">Save</button>
         <button class="ie-cancel">Cancel</button>
+        <button class="ie-delete danger">Delete contact</button>
       `;
       card.appendChild(form);
       inlineFormOpened();
@@ -1185,26 +1186,21 @@ async function renderContactsTab(q) {
         inlineFormClosed();
         renderContactsTab($('#contact-search').value);
       });
+      // Available to all three roles — unlike adding a contact (Caller's
+      // job), removing a bad record is something anyone should be able to do.
+      form.querySelector('.ie-delete').addEventListener('click', async () => {
+        if (
+          !confirm(
+            `Delete ${c.name}? This removes the contact and their deal history, and cancels any real Zoom meeting they have booked. This can't be undone.`
+          )
+        )
+          return;
+        await api(`/api/contacts/${c.id}`, { method: 'DELETE' });
+        inlineFormClosed();
+        renderContactsTab($('#contact-search').value);
+      });
     });
     actions.appendChild(editBtn);
-
-    // Symmetric with who can add contacts (Caller's job) — deleting one is
-    // the undo of that, so it gets the same role restriction.
-    const deleteBtn = document.createElement('button');
-    deleteBtn.textContent = 'Delete contact';
-    deleteBtn.className = 'danger';
-    deleteBtn.hidden = currentRole !== 'caller';
-    deleteBtn.addEventListener('click', async () => {
-      if (
-        !confirm(
-          `Delete ${c.name}? This removes the contact and their deal history, and cancels any real Zoom meeting they have booked. This can't be undone.`
-        )
-      )
-        return;
-      await api(`/api/contacts/${c.id}`, { method: 'DELETE' });
-      renderContactsTab($('#contact-search').value);
-    });
-    actions.appendChild(deleteBtn);
 
     card.appendChild(actions);
     el.appendChild(card);

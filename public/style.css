@@ -315,6 +315,7 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 .inline-edit input { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); flex: 1; min-width: 100px; }
 .inline-edit button { font-size: 12px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: white; cursor: pointer; }
 .inline-edit button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+.inline-edit button.danger { color: var(--bad); border-color: #fca5a5; }
 
 .form { display: flex; flex-direction: column; gap: 10px; }
 .form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
