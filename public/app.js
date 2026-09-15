@@ -932,7 +932,6 @@ async function openDealModal(id) {
       }" />
       ${ZOOM_STATUS.connected ? '' : `<input id="m-zoom" placeholder="Zoom link" value="${deal.zoom_link || ''}" />`}
       <button id="m-schedule" class="primary">${deal.stage === 'meeting_booked' ? 'Reschedule' : 'Schedule'}</button>
-      ${deal.stage === 'meeting_booked' ? '<button id="m-delete-meeting" class="danger">Delete meeting</button>' : ''}
     </div>
     ${
       ZOOM_STATUS.connected
@@ -956,6 +955,9 @@ async function openDealModal(id) {
     <div class="mactions">
       <input id="m-resched-remark" placeholder="Reason (e.g. running late, client asked to push)" style="flex:1" />
       <button id="m-request-reschedule">Send request</button>
+    </div>
+    <div class="mactions" style="margin-top:8px">
+      <button id="m-delete-meeting" class="danger">Delete meeting</button>
     </div>`
         : ''
     }
