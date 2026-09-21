@@ -843,16 +843,13 @@ app.get('/api/summary/activities', async (req, res) => {
 // The agent's Google Calendar events for a stretch of time, ready to sit next to
 // the Zoom meetings. Anything that is really one of the Zoom meetings already
 // listed (a Google event with a Zoom link, e.g. from Zoom's Calendar add-on) is
-// dropped so it isn't shown twice. The Caller only gets anonymous "Busy" blocks:
-// when Aaron is tied up, never what with.
-async function googleCalendarItems({ from, to, role, knownZoomIds }) {
+// dropped so it isn't shown twice. Both roles see the same thing — the caller
+// works as the agent's PA and is meant to see the whole calendar.
+async function googleCalendarItems({ from, to, knownZoomIds }) {
   const events = await gcal.listEvents({ from, to });
   return events
     .filter((e) => !e.zoom_ids.some((id) => knownZoomIds.has(id)))
-    .filter((e) => role === 'agent' || !e.transparent)
-    .map(({ zoom_ids, transparent, ...e }) =>
-      role === 'agent' ? e : { ...e, title: 'Busy', external_url: null, busy_only: true }
-    );
+    .map(({ zoom_ids, transparent, ...e }) => e);
 }
 
 const ZOOM_ID_IN_LINK = /zoom\.us\/(?:j|my|w)\/(\d{8,})/i;
@@ -890,7 +887,6 @@ app.get('/api/summary/month', async (req, res) => {
   const google = await googleCalendarItems({
     from: new Date(monthStart.getTime() - 86400000),
     to: new Date(monthEnd.getTime() + 86400000),
-    role: req.user.role,
     knownZoomIds,
   });
 
@@ -1003,12 +999,7 @@ app.get('/auth/google/callback', agentOnly, async (req, res) => {
   }
 });
 
-// The caller only needs to know whether it's connected — whose calendar it is
-// stays with the agent.
-app.get('/api/google/status', async (req, res) => {
-  const status = await gcal.status();
-  res.json(req.user.role === 'agent' ? status : { ...status, email: null });
-});
+app.get('/api/google/status', async (req, res) => res.json(await gcal.status()));
 
 app.post('/api/google/disconnect', agentOnly, async (req, res) => {
   await gcal.disconnect();

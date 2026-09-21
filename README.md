@@ -35,10 +35,9 @@ external chat integration; it's a single shared source of truth.
 - **Google Calendar on the Summary calendar** (optional): the agent connects
   their own Google account ("Connect Google Calendar", top bar) and their
   events appear next to the Zoom meetings, in green. It's read-only — the app
-  can't create, change or delete anything in Google. **The agent** sees titles
-  and can click through to the event; **the caller** only gets anonymous "Busy"
-  blocks (titles, links and details never leave the server, and "free" events
-  are left out), so they can see when the agent is tied up without seeing why.
+  can't create, change or delete anything in Google. Both roles see the same
+  events, with titles, and can click through to Google (the caller works as the
+  agent's PA); only the agent can connect or disconnect it.
   Only the primary calendar is read; cancelled and declined events are skipped;
   a Google event that is really one of the Zoom meetings (e.g. made by Zoom's
   Calendar add-on) isn't shown twice. Needs `GOOGLE_CLIENT_ID` /
