@@ -36,6 +36,10 @@ async function api(path, opts) {
   }
   if (res.status >= 500) showConnBanner();
   else hideConnBanner();
+  if (res.status === 403 && (await res.clone().json().catch(() => null))?.error === 'no_team') {
+    location.reload(); // left the team in another tab — back to the team picker
+    throw Object.assign(new Error('Not in a team'), { status: 403 });
+  }
   if (!res.ok) {
     // A 4xx is the server answering "no" (e.g. duplicate phone number) — not a
     // connection problem, so hand the caller the details instead.
@@ -69,11 +73,19 @@ function whatsappLink(phone, message) {
   return `https://wa.me/${digits}${message ? `?text=${encodeURIComponent(message)}` : ''}`;
 }
 
+// The Caller sends the meeting details first; the Agent follows up nearer the
+// date as a reminder — same link, different wording and button label.
+function sendLabel() {
+  return currentRole === 'agent' ? 'Send reminder' : 'Send details';
+}
 function confirmMeetingMessage(name, scheduledAt, zoomLink) {
   const when = new Date(scheduledAt).toLocaleString(undefined, {
     weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
   });
-  return `Hi ${name || 'there'}, just confirming our meeting on ${when}.${zoomLink ? ` Zoom link: ${zoomLink}` : ''}`;
+  const zoom = zoomLink ? ` Zoom link: ${zoomLink}` : '';
+  return currentRole === 'agent'
+    ? `Hi ${name || 'there'}, a quick reminder about our meeting on ${when}.${zoom}`
+    : `Hi ${name || 'there'}, here are the details for our meeting on ${when}.${zoom}`;
 }
 
 // Who's logged in — set by startApp() once /api/auth/me answers. The server
@@ -101,7 +113,7 @@ $$('.tab-btn').forEach((btn) => {
 // not access control (there's no real auth in this app).
 const ROLE_TABS = {
   caller: ['summary', 'meetings', 'contacts', 'pipeline'],
-  agent: ['summary', 'meetings', 'contacts', 'pipeline', 'analytics'],
+  agent: ['summary', 'meetings', 'contacts', 'interviews', 'analytics'],
 };
 
 let currentRole = 'agent';
@@ -231,7 +243,7 @@ async function renderNotifDropdown() {
       $('#notif-dropdown').hidden = true;
       refreshNotifCount();
       if (item.dataset.deal) {
-        activateTab('pipeline');
+        activateTab(currentRole === 'agent' ? 'meetings' : 'pipeline'); // the Agent has no Pipeline tab
         openDealModal(item.dataset.deal);
       } else if (item.dataset.type === 'reschedule_requested') {
         activateTab('meetings'); // Zoom-only meeting: no deal to open, the Reschedule button lives here
@@ -397,7 +409,7 @@ async function renderCalendarUpcoming() {
         <div class="upcoming-item" data-idx="${upcoming.indexOf(m)}">
           <span class="u-when">${fmtTime(m.scheduled_at)}</span>
           <span class="u-name">${name}</span>
-          ${waLink ? `<a href="${waLink}" target="_blank" rel="noopener" class="u-whatsapp">Text</a>` : ''}
+          ${waLink ? `<a href="${waLink}" target="_blank" rel="noopener" class="u-whatsapp">${sendLabel()}</a>` : ''}
           ${m.zoom_link ? `<a href="${m.zoom_link}" target="_blank" rel="noopener" class="u-join">Join</a>` : ''}
         </div>`;
       })
@@ -530,9 +542,13 @@ async function renderMeetingsTab() {
     .map((d) => {
       const isZoomOnly = d.source === 'zoom';
       const name = isZoomOnly ? d.title : d.contact?.name ? `Call with ${d.contact.name}` : 'Meeting';
+      const flags =
+        (d.reschedule_requested
+          ? `<span class="badge-warning" title="${escapeHtml(d.reschedule_requested.remark)}">Reschedule requested</span>`
+          : '') + (d.outcome ? `<span class="badge-outcome">${escapeHtml(d.outcome.label)}</span>` : '');
       return `
       <div class="meetings-row" data-id="${d.id}" ${isZoomOnly ? 'data-zoom-only="1"' : ''}>
-        <div class="mt-name">${name}</div>
+        <div class="mt-name">${name}${flags ? `<div class="mt-flags">${flags}</div>` : ''}</div>
         <div class="mt-join">${
           d.zoom_link
             ? `<a href="${d.zoom_link}" target="_blank" rel="noopener" class="join-btn">Join</a>`
@@ -544,8 +560,8 @@ async function renderMeetingsTab() {
         <div class="mt-actions">${
           isZoomOnly
             ? currentRole === 'agent'
-              ? `<button class="zoom-resched-request-btn" data-id="${d.id}">Request reschedule</button>
-               <button class="zoom-outcome-btn" data-id="${d.id}">Log outcome</button>`
+              ? `<button class="zoom-resched-request-btn" data-id="${d.id}">${d.reschedule_requested ? 'Edit request' : 'Request reschedule'}</button>
+               <button class="zoom-outcome-btn" data-id="${d.id}">${d.outcome ? 'Edit outcome' : 'Log outcome'}</button>`
               : `<button class="resched-btn" data-id="${d.id}">Reschedule</button>
                <button class="zoom-delete-btn" data-id="${d.id}">Delete meeting</button>`
             : `${
@@ -553,7 +569,7 @@ async function renderMeetingsTab() {
                   ? `<a href="${whatsappLink(
                       d.contact.phone,
                       confirmMeetingMessage(d.contact.name, d.scheduled_at, d.zoom_link)
-                    )}" target="_blank" rel="noopener" class="mt-whatsapp-btn">Text</a>`
+                    )}" target="_blank" rel="noopener" class="mt-whatsapp-btn">${sendLabel()}</a>`
                   : ''
               }${
                 currentRole === 'agent'
@@ -588,25 +604,39 @@ async function renderMeetingsTab() {
       const row = btn.closest('.meetings-row');
       if (row.querySelector('.inline-zoom-action')) return;
       const meeting = deals.find((d) => String(d.id) === btn.dataset.id);
+      const existing = meeting?.reschedule_requested;
+      const zoomId = btn.dataset.id.replace('zoom-', '');
       const form = document.createElement('div');
       form.className = 'inline-zoom-action';
       form.innerHTML = `
-        <input type="text" class="iza-remark" placeholder="Reason (e.g. running late, need to push)" style="flex:1" />
-        <button class="iza-save primary">Send</button>
+        <input type="text" class="iza-remark" placeholder="Reason (e.g. running late, need to push)" style="flex:1" value="${escapeHtml(existing?.remark || '')}" />
+        <button class="iza-save primary">${existing ? 'Update' : 'Send'}</button>
+        ${existing ? '<button class="iza-withdraw danger">Withdraw</button>' : ''}
         <button class="iza-cancel">Cancel</button>
       `;
       row.appendChild(form);
       inlineFormOpened();
-      form.querySelector('.iza-cancel').addEventListener('click', (ev) => {
-        ev.stopPropagation();
+      const close = () => {
         inlineFormClosed();
         form.remove();
+      };
+      form.querySelector('.iza-cancel').addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        close();
+      });
+      form.querySelector('.iza-withdraw')?.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        await api(`/api/zoom-meetings/${zoomId}/request-reschedule`, {
+          method: 'DELETE',
+          body: JSON.stringify({ topic: meeting?.title }),
+        });
+        close();
+        renderMeetingsTab();
       });
       form.querySelector('.iza-save').addEventListener('click', async (ev) => {
         ev.stopPropagation();
         const remark = form.querySelector('.iza-remark').value.trim();
         if (!remark) return;
-        const zoomId = btn.dataset.id.replace('zoom-', '');
         await api(`/api/zoom-meetings/${zoomId}/request-reschedule`, {
           method: 'POST',
           body: JSON.stringify({
@@ -616,9 +646,8 @@ async function renderMeetingsTab() {
             scheduled_at: meeting?.scheduled_at,
           }),
         });
-        inlineFormClosed();
-        form.remove();
-        alert('Sent — whoever manages the calendar will see it in notifications.');
+        close();
+        renderMeetingsTab();
       });
     });
   });
@@ -628,12 +657,15 @@ async function renderMeetingsTab() {
       const row = btn.closest('.meetings-row');
       if (row.querySelector('.inline-zoom-action')) return;
       const meeting = deals.find((d) => String(d.id) === btn.dataset.id);
+      const existing = meeting?.outcome;
       const form = document.createElement('div');
       form.className = 'inline-zoom-action';
       form.innerHTML = `
-        <select class="iza-outcome">${FOLLOWUP_OUTCOMES_CACHE.map((o) => `<option value="${o.key}">${o.label}</option>`).join('')}</select>
-        <input type="text" class="iza-note" placeholder="Notes (optional)" style="flex:1" />
-        <button class="iza-save primary">Save</button>
+        <select class="iza-outcome">${FOLLOWUP_OUTCOMES_CACHE.map(
+          (o) => `<option value="${o.key}"${existing?.key === o.key ? ' selected' : ''}>${o.label}</option>`
+        ).join('')}</select>
+        <input type="text" class="iza-note" placeholder="Notes (optional)" style="flex:1" value="${escapeHtml(existing?.note || '')}" />
+        <button class="iza-save primary">${existing ? 'Update' : 'Save'}</button>
         <button class="iza-cancel">Cancel</button>
       `;
       row.appendChild(form);
@@ -660,7 +692,7 @@ async function renderMeetingsTab() {
         });
         inlineFormClosed();
         form.remove();
-        alert('Logged.');
+        renderMeetingsTab();
       });
     });
   });
@@ -820,7 +852,7 @@ async function ensureFollowupOutcomes() {
   return FOLLOWUP_OUTCOMES_CACHE;
 }
 
-async function openDealModal(id) {
+async function openDealModal(id, opts = {}) {
   const deal = await api(`/api/deals/${id}`);
   await ensureFollowupOutcomes();
   await loadZoomStatus();
@@ -841,19 +873,33 @@ async function openDealModal(id) {
     <div class="mnotes">${contact.phone || ''} ${contact.email ? '· ' + contact.email : ''}</div>
     ${deal.zoom_link ? `<div class="mnotes" style="margin-top:6px">Zoom link: <a href="${deal.zoom_link}" target="_blank" rel="noopener">${deal.zoom_link}</a></div>` : ''}
     ${
+      opts.justBooked
+        ? `<div class="banner-success">Meeting saved.${
+            contact.phone ? ` Send ${escapeHtml(contact.name || 'the client')} the details:` : ' There is no phone number on file to text them.'
+          }</div>`
+        : ''
+    }
+    ${
       contact.phone && deal.scheduled_at
         ? `<a href="${whatsappLink(
             contact.phone,
             confirmMeetingMessage(contact.name, deal.scheduled_at, deal.zoom_link)
-          )}" target="_blank" rel="noopener" class="whatsapp-btn" style="margin-top:8px">Text to confirm</a>`
+          )}" target="_blank" rel="noopener" class="whatsapp-btn" style="margin-top:8px">${sendLabel()} to client</a>`
+        : ''
+    }
+    ${
+      deal.outcome
+        ? `<div class="mnotes" style="margin-top:8px">Outcome: <strong>${escapeHtml(deal.outcome.label)}</strong>${
+            deal.outcome.note ? ` — ${escapeHtml(deal.outcome.note)}` : ''
+          } <span class="hint">(${escapeHtml(deal.outcome.logged_by)}, ${fmtWhen(deal.outcome.logged_at)})</span></div>`
         : ''
     }
 
     ${
       deal.reschedule_requested
         ? `<div class="banner-warning">
-            <strong>Reschedule requested</strong> by ${deal.reschedule_requested.requested_by} (${fmtWhen(deal.reschedule_requested.requested_at)}):
-            <em>"${deal.reschedule_requested.remark}"</em>${isAgent ? ' — waiting for the Caller to set a new time.' : ' — pick a new time below to resolve it.'}
+            <strong>Reschedule requested</strong> by ${escapeHtml(deal.reschedule_requested.requested_by)} (${fmtWhen(deal.reschedule_requested.requested_at)}):
+            <em>"${escapeHtml(deal.reschedule_requested.remark)}"</em>${isAgent ? ' — waiting for the Caller to set a new time.' : ' — pick a new time below to resolve it.'}
           </div>`
         : ''
     }
@@ -897,22 +943,33 @@ async function openDealModal(id) {
     }
 
     ${
-      isAgent && deal.stage === 'meeting_booked'
-        ? `<div class="section-head"><h2>Request reschedule</h2><span class="hint">Flags it for the Caller, who sets the new time</span></div>
+      !isAgent || !(deal.stage === 'meeting_booked' || deal.reschedule_requested)
+        ? ''
+        : deal.reschedule_requested
+        ? `<div class="section-head"><h2>Reschedule request</h2><span class="hint">You can change or withdraw it until the Caller sets a new time</span></div>
+    <div class="mactions">
+      <input id="m-resched-remark" value="${escapeHtml(deal.reschedule_requested.remark)}" style="flex:1" />
+      <button id="m-request-reschedule">Update request</button>
+      <button id="m-withdraw-request" class="danger">Withdraw</button>
+    </div>`
+        : `<div class="section-head"><h2>Request reschedule</h2><span class="hint">Flags it for the Caller, who sets the new time</span></div>
     <div class="mactions">
       <input id="m-resched-remark" placeholder="Reason (e.g. running late, client asked to push)" style="flex:1" />
       <button id="m-request-reschedule">Send request</button>
     </div>`
-        : ''
     }
 
     ${
-      isAgent && deal.stage === 'meeting_booked'
-        ? `<div class="section-head"><h2>Meeting follow-up</h2></div>
+      isAgent && (deal.stage === 'meeting_booked' || deal.outcome)
+        ? `<div class="section-head"><h2>${deal.outcome ? 'Meeting outcome' : 'Meeting follow-up'}</h2>${
+            deal.outcome ? '<span class="hint">You can change it until the Caller acts on it</span>' : ''
+          }</div>
     <div class="mactions">
-      <select id="m-followup-outcome">${FOLLOWUP_OUTCOMES_CACHE.map((o) => `<option value="${o.key}">${o.label}</option>`).join('')}</select>
-      <input id="m-followup-note" placeholder="Notes (optional)" />
-      <button id="m-log-followup" class="primary">Log outcome</button>
+      <select id="m-followup-outcome">${FOLLOWUP_OUTCOMES_CACHE.map(
+        (o) => `<option value="${o.key}"${deal.outcome?.key === o.key ? ' selected' : ''}>${o.label}</option>`
+      ).join('')}</select>
+      <input id="m-followup-note" placeholder="Notes (optional)" value="${escapeHtml(deal.outcome?.note || '')}" />
+      <button id="m-log-followup" class="primary">${deal.outcome ? 'Update outcome' : 'Log outcome'}</button>
     </div>`
         : ''
     }
@@ -945,7 +1002,8 @@ async function openDealModal(id) {
       const payload = { scheduled_at: new Date(time).toISOString(), changed_by: currentUser() };
       if (zoomLink) payload.zoom_link = zoomLink;
       await api(`/api/deals/${id}/${endpoint}`, { method: 'POST', body: JSON.stringify(payload) });
-      closeModal(); refresh();
+      refresh();
+      openDealModal(id, { justBooked: true }); // straight on to sending the client the details
     });
   }
 
@@ -957,32 +1015,37 @@ async function openDealModal(id) {
     });
   }
 
-  if (deal.stage === 'meeting_booked') {
-    if ($('#m-request-reschedule')) {
-      $('#m-request-reschedule').addEventListener('click', async () => {
-        const remark = $('#m-resched-remark').value.trim();
-        if (!remark) return alert('Add a short reason.');
-        await api(`/api/deals/${id}/request-reschedule`, {
-          method: 'POST',
-          body: JSON.stringify({ remark, requested_by: currentUser() }),
-        });
-        openDealModal(id); refresh();
+  if ($('#m-request-reschedule')) {
+    $('#m-request-reschedule').addEventListener('click', async () => {
+      const remark = $('#m-resched-remark').value.trim();
+      if (!remark) return alert('Add a short reason.');
+      await api(`/api/deals/${id}/request-reschedule`, {
+        method: 'POST',
+        body: JSON.stringify({ remark, requested_by: currentUser() }),
       });
-    }
+      openDealModal(id); refresh();
+    });
+  }
 
-    if ($('#m-log-followup')) {
-      $('#m-log-followup').addEventListener('click', async () => {
-        await api(`/api/deals/${id}/followup`, {
-          method: 'POST',
-          body: JSON.stringify({
-            outcome: $('#m-followup-outcome').value,
-            note: $('#m-followup-note').value,
-            changed_by: currentUser(),
-          }),
-        });
-        closeModal(); refresh();
+  if ($('#m-withdraw-request')) {
+    $('#m-withdraw-request').addEventListener('click', async () => {
+      await api(`/api/deals/${id}/request-reschedule`, { method: 'DELETE' });
+      openDealModal(id); refresh();
+    });
+  }
+
+  if ($('#m-log-followup')) {
+    $('#m-log-followup').addEventListener('click', async () => {
+      await api(`/api/deals/${id}/followup`, {
+        method: 'POST',
+        body: JSON.stringify({
+          outcome: $('#m-followup-outcome').value,
+          note: $('#m-followup-note').value,
+          changed_by: currentUser(),
+        }),
       });
-    }
+      openDealModal(id); refresh();
+    });
   }
 
 }
@@ -1126,6 +1189,13 @@ $('#contact-form [name=scheduled_at]').addEventListener('input', (e) => {
   renderZoomStatus();
 });
 
+$('#cf-result-done').addEventListener('click', () => {
+  $('#cf-result').hidden = true;
+  $('#contact-search').value = '';
+  setContactsView('list');
+  renderContactsTab();
+});
+
 $('#contact-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = e.target;
@@ -1155,6 +1225,22 @@ $('#contact-form').addEventListener('submit', async (e) => {
   $('#cf-submit').textContent = 'Add contact';
   renderZoomStatus();
   if (res.meeting_error) alert(`Contact added, but the meeting wasn't booked: ${res.meeting_error}\nOpen them from the Pipeline to try scheduling again.`);
+  // A meeting was booked with the contact: the Caller sends the client the
+  // details first, so offer that now instead of jumping away.
+  if (res.deal?.scheduled_at && !res.meeting_error) {
+    const send = $('#cf-result-send');
+    $('#cf-result-text').textContent = `${res.contact.name} was added and the meeting is booked.`;
+    if (res.contact.phone) {
+      send.href = whatsappLink(res.contact.phone, confirmMeetingMessage(res.contact.name, res.deal.scheduled_at, res.deal.zoom_link));
+      send.textContent = `${sendLabel()} to ${res.contact.name}`;
+      send.hidden = false;
+    } else {
+      send.hidden = true;
+      $('#cf-result-text').textContent += ' There is no phone number on file to text them.';
+    }
+    $('#cf-result').hidden = false;
+    return;
+  }
   // Back to the list so the new contact is right there (clear any search that would hide it).
   $('#contact-search').value = '';
   setContactsView('list');
@@ -1182,6 +1268,23 @@ const STAGE_COLORS = {
   won: '#22c55e',
   lost: '#f87171',
 };
+
+// The Agent's own numbers: interviews put in the diary, ones he actually
+// went to, and how many were moved. Counted by lib/stats.js.
+async function renderInterviewsTab() {
+  const s = await api('/api/summary/interview-stats');
+  const card = (value, month, label, detail) => `
+    <div class="stat-card">
+      <div class="sval">${value}</div>
+      <div class="slabel">${label}</div>
+      <div class="sdetail">${detail}</div>
+      <div class="ssub">${month} this month</div>
+    </div>`;
+  $('#interview-cards').innerHTML =
+    card(s.fixed, s.this_month.fixed, 'Interviews fixed', 'Put in the diary') +
+    card(s.attended, s.this_month.attended, 'Interviews attended', 'Ones you went for and logged an outcome on') +
+    card(s.rescheduled, s.this_month.rescheduled, 'Reschedules made', 'Times a meeting was moved to a new time');
+}
 
 async function renderAnalyticsTab() {
   const a = await api('/api/analytics');
@@ -1215,6 +1318,7 @@ async function refresh() {
     if (active === 'tab-meetings') await renderMeetingsTab();
     if (active === 'tab-contacts') await renderContactsTab($('#contact-search').value);
     if (active === 'tab-analytics') await renderAnalyticsTab();
+    if (active === 'tab-interviews') await renderInterviewsTab();
   } catch (err) {
     console.error(err);
   }
@@ -1233,28 +1337,38 @@ const AUTH_MODES = {
   login: {
     blurb: 'Log in to your team.',
     submit: 'Log in',
-    fields: [],
+    fields: ['email', 'password'],
   },
   create: {
     blurb: 'Start a team for you and your teammate. A team is one Caller and one Agent — your data stays private to it.',
     submit: 'Create team',
-    fields: ['name', 'team_name', 'role'],
+    fields: ['name', 'team_name', 'role', 'email', 'password'],
   },
   join: {
     blurb: 'Your teammate already made the team? Enter the invite code they sent you.',
     submit: 'Join team',
-    fields: ['name', 'invite_code', 'role'],
+    fields: ['name', 'invite_code', 'role', 'email', 'password'],
   },
 };
 let authMode = 'login';
+// Set when someone is logged in but between teams (they just left one): the
+// same screen then only asks which team, not who they are.
+let teamlessUser = null;
 
 function setAuthMode(mode) {
   authMode = mode;
   const cfg = AUTH_MODES[mode];
   $$('.auth-tab').forEach((t) => t.classList.toggle('active', t.dataset.authMode === mode));
+  const fields = teamlessUser ? cfg.fields.filter((f) => f !== 'email' && f !== 'password') : cfg.fields;
   $$('#auth-form [data-auth-field]').forEach((el) => {
-    el.hidden = !cfg.fields.includes(el.dataset.authField);
+    el.hidden = !fields.includes(el.dataset.authField);
   });
+  $('.auth-tab[data-auth-mode=login]').hidden = Boolean(teamlessUser);
+  $('#auth-who').hidden = !teamlessUser;
+  if (teamlessUser) {
+    $('#auth-who-text').textContent = `Signed in as ${teamlessUser.name} (${teamlessUser.email}) — not in a team.`;
+    $('#auth-form [name=name]').value = $('#auth-form [name=name]').value || teamlessUser.name;
+  }
   $('#auth-blurb').textContent = cfg.blurb;
   $('#auth-submit').textContent = cfg.submit;
   $('#auth-form [name=password]').autocomplete = mode === 'login' ? 'current-password' : 'new-password';
@@ -1267,6 +1381,20 @@ function showAuthScreen() {
   setAuthMode('login');
 }
 
+function showTeamPicker(info) {
+  teamlessUser = info.user;
+  $('#app-shell').hidden = true;
+  $('#auth-screen').hidden = false;
+  setAuthMode('join');
+}
+$('#auth-logout').addEventListener('click', async () => {
+  try {
+    await api('/api/auth/logout', { method: 'POST' });
+  } finally {
+    location.reload();
+  }
+});
+
 $$('.auth-tab').forEach((tab) => tab.addEventListener('click', () => setAuthMode(tab.dataset.authMode)));
 
 $('#auth-form').addEventListener('submit', async (e) => {
@@ -1278,14 +1406,20 @@ $('#auth-form').addEventListener('submit', async (e) => {
   submit.disabled = true;
   try {
     const payload = Object.fromEntries(form.entries());
-    const info =
-      authMode === 'login'
-        ? await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ email: payload.email, password: payload.password }) })
-        : await api('/api/auth/signup', { method: 'POST', body: JSON.stringify({ ...payload, mode: authMode }) });
+    const info = teamlessUser
+      ? await api('/api/auth/team', { method: 'POST', body: JSON.stringify({ ...payload, mode: authMode }) })
+      : authMode === 'login'
+      ? await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ email: payload.email, password: payload.password }) })
+      : await api('/api/auth/signup', { method: 'POST', body: JSON.stringify({ ...payload, mode: authMode }) });
+    if (!info.team) {
+      // Logged in, but their account isn't in a team (they left it earlier).
+      e.target.reset();
+      return showTeamPicker(info);
+    }
     // Offer the browser's password manager the credentials (Chrome/Edge; other
     // browsers pick the form up on their own from the autocomplete attributes).
     // The password itself is never stored by this app — only by the browser.
-    if (window.PasswordCredential && navigator.credentials?.store) {
+    if (!teamlessUser && window.PasswordCredential && navigator.credentials?.store) {
       try {
         await navigator.credentials.store(new PasswordCredential({ id: payload.email, password: payload.password, name: info.user.name }));
       } catch {
@@ -1293,6 +1427,7 @@ $('#auth-form').addEventListener('submit', async (e) => {
       }
     }
     e.target.reset();
+    teamlessUser = null;
     await startApp(info);
   } catch (err) {
     errorEl.textContent = err.status === 401 || err.status === 400 || err.status === 409 || err.status === 429 ? err.message : 'Something went wrong — try again.';
@@ -1345,6 +1480,22 @@ $('#ib-dismiss').addEventListener('click', () => {
   sessionStorage.setItem('inviteBannerDismissed', '1');
   $('#invite-banner').hidden = true;
 });
+// Leaving the team: keeps the login, drops the seat. Reloading lands on the
+// "pick a team" screen.
+$('#am-leave-open').addEventListener('click', () => {
+  $('#am-leave-open').hidden = true;
+  $('#am-leave-form').hidden = false;
+});
+$('#am-leave-cancel').addEventListener('click', () => {
+  $('#am-leave-form').hidden = true;
+  $('#am-leave-open').hidden = false;
+});
+$('#am-leave-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  await api('/api/auth/leave', { method: 'POST' });
+  location.reload();
+});
+
 // Deleting your own account: asks for the password again, removes only the
 // login (the team's data stays), then reloads to the login screen.
 $('#am-delete-open').addEventListener('click', () => {
@@ -1385,6 +1536,7 @@ async function refreshMe() {
     if (res.status === 401) return location.reload();
     if (res.ok) {
       ME = await res.json();
+      if (!ME.team) return location.reload(); // removed from the team elsewhere
       renderAccount();
     }
   } catch (err) {
@@ -1425,7 +1577,9 @@ async function startApp(info) {
     return;
   }
   if (!res.ok) return showAuthScreen();
-  await startApp(await res.json());
+  const info = await res.json();
+  if (!info.team) return showTeamPicker(info);
+  await startApp(info);
   if (zoomResult === 'connected') alert('Zoom connected.');
   else if (zoomResult === 'error') alert('Zoom connection failed — check the server logs.');
 })();

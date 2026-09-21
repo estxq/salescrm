@@ -11,6 +11,10 @@
 <div id="auth-screen" class="auth-screen" hidden>
   <div class="auth-card">
     <div class="auth-brand"><div class="sidebar-logo">SH</div><div class="side-workspace-name">Schedule Hub</div></div>
+    <div id="auth-who" class="auth-who" hidden>
+      <span id="auth-who-text"></span>
+      <button type="button" id="auth-logout" class="auth-logout">Log out</button>
+    </div>
     <div class="auth-tabs" role="tablist">
       <button type="button" class="auth-tab active" data-auth-mode="login">Log in</button>
       <button type="button" class="auth-tab" data-auth-mode="create">Create a team</button>
@@ -26,8 +30,8 @@
         <label class="auth-role"><input type="radio" name="role" value="caller" /> <span><strong>Caller</strong><small>Adds contacts, schedules meetings</small></span></label>
         <label class="auth-role"><input type="radio" name="role" value="agent" /> <span><strong>Agent</strong><small>Attends meetings, tracks results</small></span></label>
       </fieldset>
-      <label>Email <input id="auth-email" name="email" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" /></label>
-      <label>Password <input id="auth-password" name="password" type="password" autocomplete="current-password" /></label>
+      <label data-auth-field="email">Email <input id="auth-email" name="email" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" /></label>
+      <label data-auth-field="password">Password <input id="auth-password" name="password" type="password" autocomplete="current-password" /></label>
       <div id="auth-error" class="form-warning" hidden></div>
       <button type="submit" id="auth-submit">Log in</button>
     </form>
@@ -45,6 +49,7 @@
       <button class="side-item tab-btn" data-tab="meetings"><span class="side-item-icon">▣</span><span>Meetings</span></button>
       <button class="side-item tab-btn" data-tab="contacts"><span class="side-item-icon">☺</span><span>Contacts</span></button>
       <button class="side-item tab-btn" data-tab="pipeline"><span class="side-item-icon">◧</span><span>Pipeline</span></button>
+      <button class="side-item tab-btn" data-tab="interviews"><span class="side-item-icon">◔</span><span>Interviews</span></button>
       <button class="side-item tab-btn" data-tab="analytics"><span class="side-item-icon">▤</span><span>Analytics</span></button>
     </nav>
   </aside>
@@ -79,6 +84,14 @@
               <div class="am-code-row"><code id="am-invite-code"></code><button type="button" id="am-copy">Copy</button></div>
             </div>
             <button type="button" id="logout-btn" class="am-logout">Log out</button>
+            <button type="button" id="am-leave-open" class="am-delete-open am-leave-open">Leave team</button>
+            <form id="am-leave-form" class="am-delete-form" hidden>
+              <div class="am-sub">You'll be taken out of this team. Its contacts, meetings and Zoom connection stay with the team, and you can join or start another team afterwards.</div>
+              <div class="am-delete-actions">
+                <button type="submit" class="am-delete-confirm">Leave team</button>
+                <button type="button" id="am-leave-cancel">Cancel</button>
+              </div>
+            </form>
             <button type="button" id="am-delete-open" class="am-delete-open">Delete my account</button>
             <form id="am-delete-form" class="am-delete-form" hidden>
               <div class="am-sub">This removes your login only. Your team's contacts, meetings and Zoom connection stay, and someone with the invite code can take your seat.</div>
@@ -101,6 +114,7 @@
         <button class="tab-btn" data-tab="meetings">Meetings</button>
         <button class="tab-btn" data-tab="contacts">Contacts</button>
         <button class="tab-btn" data-tab="pipeline">Pipeline</button>
+        <button class="tab-btn" data-tab="interviews">Interviews</button>
         <button class="tab-btn" data-tab="analytics">Analytics</button>
       </nav>
     </div>
@@ -194,6 +208,13 @@
 
         <div id="contacts-view-new" hidden>
           <div class="section-head"><h2>New contact</h2></div>
+          <div id="cf-result" class="card cf-result" hidden>
+            <div id="cf-result-text"></div>
+            <div class="cf-result-actions">
+              <a id="cf-result-send" class="whatsapp-btn" target="_blank" rel="noopener" hidden></a>
+              <button type="button" id="cf-result-done">Done</button>
+            </div>
+          </div>
           <form id="contact-form" class="card form">
             <label>Name <input name="name" required /></label>
             <label>Phone <input name="phone" placeholder="6591234567" autocomplete="off" /></label>
@@ -208,6 +229,12 @@
             <button type="submit" id="cf-submit">Add contact</button>
           </form>
         </div>
+      </section>
+
+      <!-- INTERVIEWS (Agent) -->
+      <section id="tab-interviews" class="tab-panel">
+        <div id="interview-cards" class="stat-cards interview-cards"></div>
+        <p class="hint">Interviews booked directly in Zoom are counted the first time this app sees them, so a meeting that came and went while nobody had the app open may be missed.</p>
       </section>
 
       <!-- ANALYTICS -->

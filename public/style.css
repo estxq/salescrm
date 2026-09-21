@@ -432,7 +432,7 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 .inline-edit input { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); flex: 1; min-width: 100px; }
 .inline-edit button { font-size: 12px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: white; cursor: pointer; }
 .inline-edit button.primary { background: var(--accent); color: white; border-color: var(--accent); }
-.inline-edit button.danger { color: var(--bad); border-color: #fca5a5; }
+.inline-edit button.danger, .inline-zoom-action button.danger { color: var(--bad); border-color: #fca5a5; }
 
 .form { display: flex; flex-direction: column; gap: 10px; }
 .form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
@@ -841,3 +841,29 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
   .board { grid-template-columns: repeat(3, minmax(160px, 1fr)); }
   .charts-row { grid-template-columns: 1fr; }
 }
+
+/* ---------- Editable flags on Meetings rows ---------- */
+.mt-flags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.badge-outcome { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: #e0e7ff; color: #3730a3; }
+.banner-success { margin-top: 10px; padding: 8px 12px; border-radius: 8px; background: #dcfce7; border: 1px solid #86efac; color: #166534; font-size: 13px; }
+
+/* ---------- Agent's Interviews page ---------- */
+.interview-cards { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.interview-cards .stat-card { padding: 20px 22px; }
+.interview-cards .sval { font-size: 40px; line-height: 1.1; }
+.interview-cards .slabel { font-size: 14px; font-weight: 600; color: var(--text); margin-top: 6px; }
+.interview-cards .sdetail { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.interview-cards .ssub { display: inline-block; margin-top: 12px; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: var(--accent-weak); color: var(--accent); }
+
+/* ---------- Contact created + send details ---------- */
+.cf-result { display: flex; flex-direction: column; gap: 12px; margin-bottom: 14px; border-color: #86efac; background: #f0fdf4; }
+.cf-result-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.cf-result-actions button { font: inherit; font-size: 13px; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); cursor: pointer; }
+.cf-result[hidden] { display: none; }
+
+/* ---------- Team-less sign-in + leave team ---------- */
+.auth-who { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); margin-bottom: 12px; line-height: 1.4; }
+.auth-who[hidden] { display: none; }
+.auth-logout { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--card); cursor: pointer; white-space: nowrap; }
+.auth-tab[hidden] { display: none; }
+.am-leave-open:hover { color: var(--text); }

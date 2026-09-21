@@ -12,6 +12,9 @@ import {
   AuthError,
   createTeamAndAccount,
   joinTeamAndAccount,
+  createTeamForAccount,
+  joinTeamForAccount,
+  leaveTeam,
   login,
   deleteAccount,
   getAccount,
@@ -37,6 +40,7 @@ import {
   rescheduleMeeting,
   requestReschedule,
   logFollowUp,
+  withdrawRescheduleRequest,
   updateDealValue,
   addNote,
   deleteDeal,
@@ -51,7 +55,8 @@ import {
   notifyOutcome,
   notifyRemark,
 } from './lib/notify.js';
-import { listNotifications, markRead, markDone, markAllRead, unreadCount, deleteNotificationsFor, deleteNotification, createNotification, resolveZoomRescheduleRequests } from './lib/notifications.js';
+import { listNotifications, markRead, markDone, markAllRead, unreadCount, deleteNotificationsFor, deleteNotification, createNotification, resolveZoomRescheduleRequests, findOpenNotification, reviseNotification } from './lib/notifications.js';
+import { recordOnce, recordEvent, recordZoomMeetingsSeen, forgetMeeting, backfillDealRefs, interviewStats } from './lib/stats.js';
 import { buildIcs, googleCalendarLink } from './lib/calendar.js';
 import { checkAndSendReminders } from './lib/reminders.js';
 import * as zoom from './lib/zoom.js';
@@ -62,9 +67,14 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Best-effort: free up the agent's Zoom account when a deal falls through.
+// Awaited on purpose — on Vercel the function can be frozen the moment the
+// response goes out, which would silently leave the Zoom meeting behind.
 async function cleanupZoomMeeting(dealBefore) {
-  if ((await zoom.isConnected()) && dealBefore?.zoom_meeting_id) {
-    zoom.deleteMeeting(dealBefore.zoom_meeting_id).catch((err) => console.error('[zoom] cleanup failed', err.message));
+  if (!dealBefore?.zoom_meeting_id) return;
+  try {
+    if (await zoom.isConnected()) await zoom.deleteMeeting(dealBefore.zoom_meeting_id);
+  } catch (err) {
+    console.error('[zoom] cleanup failed', err.message);
   }
 }
 
@@ -74,10 +84,26 @@ async function cleanupZoomMeeting(dealBefore) {
 async function getZoomOnlyMeetings(linkedZoomMeetingIds) {
   if (!(await zoom.isConnected())) return [];
   try {
-    const meetings = await zoom.listMeetings();
-    return meetings
-      .filter((m) => !linkedZoomMeetingIds.has(m.id))
-      .map((m) => ({
+    const meetings = (await zoom.listMeetings()).filter((m) => !linkedZoomMeetingIds.has(m.id));
+    await recordZoomMeetingsSeen(meetings.map((m) => m.id));
+
+    // With no deal to hang state on, an open request or logged outcome for one
+    // of these lives in the notifications — surface it so the agent can edit it.
+    const open = await listNotifications({ status: 'new' });
+    const latest = (type) => {
+      const byMeeting = new Map();
+      open.filter((n) => n.type === type && n.meta?.zoom_meeting_id != null).forEach((n) => {
+        if (!byMeeting.has(String(n.meta.zoom_meeting_id))) byMeeting.set(String(n.meta.zoom_meeting_id), n); // newest first
+      });
+      return byMeeting;
+    };
+    const requests = latest('reschedule_requested');
+    const outcomes = latest('meeting_outcome');
+
+    return meetings.map((m) => {
+      const req = requests.get(String(m.id));
+      const out = outcomes.get(String(m.id));
+      return {
         id: `zoom-${m.id}`,
         source: 'zoom',
         title: m.topic,
@@ -85,8 +111,12 @@ async function getZoomOnlyMeetings(linkedZoomMeetingIds) {
         scheduled_at: m.start_time,
         contact: null,
         owner: 'Zoom',
-        reschedule_requested: null,
-      }));
+        reschedule_requested: req ? { remark: req.meta.remark, requested_by: req.from_name, requested_at: req.created_at } : null,
+        outcome: out
+          ? { key: out.meta.outcome, label: FOLLOWUP_OUTCOMES[out.meta.outcome]?.label || out.meta.outcome, note: out.meta.note || '' }
+          : null,
+      };
+    });
   } catch (err) {
     console.error('[zoom] list meetings failed', err.message);
     return [];
@@ -98,6 +128,7 @@ async function getZoomOnlyMeetings(linkedZoomMeetingIds) {
 // role. Shared by "schedule" on an existing deal and "add contact + schedule".
 // Throws an error carrying an HTTP status so each caller can report it.
 async function bookMeeting(deal, contact, { scheduled_at, zoom_link, changed_by }) {
+  const previousMeetingId = deal.zoom_meeting_id; // a meeting this deal already had, if any
   let link = zoom_link;
   let meetingId = null;
   if (!link && (await zoom.isConnected())) {
@@ -112,6 +143,10 @@ async function bookMeeting(deal, contact, { scheduled_at, zoom_link, changed_by 
   if (!link) throw Object.assign(new Error('zoom_link required (or connect Zoom to auto-generate one)'), { status: 400 });
 
   const booked = await scheduleMeeting(deal.id, { zoom_link: link, zoom_meeting_id: meetingId, scheduled_at, changed_by });
+  // Scheduling again on a deal that already had a Zoom meeting replaces it:
+  // delete the old one so only the new meeting is left in the agent's Zoom.
+  if (previousMeetingId && previousMeetingId !== meetingId) await cleanupZoomMeeting({ zoom_meeting_id: previousMeetingId });
+  await recordOnce('fixed', booked.stat_ref);
   await notifyScheduled(booked, changed_by);
   return booked;
 }
@@ -139,12 +174,48 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/auth/me', async (req, res) => {
+// The logged-in account, or a 401. These account routes sit above the gate
+// because they must also work for someone who's between teams.
+async function sessionAccount(req, res) {
   const accountId = await sessionAccountId(req, res);
   const account = accountId && (await getAccount(accountId));
-  const team = account && (await getTeam(account.team_id));
-  if (!account || !team) return res.status(401).json({ error: 'not_logged_in' });
-  res.json(await sessionInfo(account, team));
+  if (!account) throw new AuthError('not_logged_in', 401);
+  return account;
+}
+
+app.get('/api/auth/me', async (req, res) => {
+  const account = await sessionAccount(req, res);
+  res.json(await sessionInfo(account, account.team_id ? await getTeam(account.team_id) : null));
+});
+
+// Someone with a login but no team (they just left one) starts or joins one.
+app.post('/api/auth/team', async (req, res) => {
+  const account = await sessionAccount(req, res);
+  const body = req.body || {};
+  const { account: seated, team } =
+    body.mode === 'join' ? await joinTeamForAccount(account, body) : await createTeamForAccount(account, body);
+  res.status(201).json(await sessionInfo(seated, team));
+});
+
+// Leave the team but keep the login.
+app.post('/api/auth/leave', async (req, res) => {
+  const account = await sessionAccount(req, res);
+  const left = await leaveTeam(account);
+  await withTeam(left.teamId, () =>
+    createNotification({
+      type: 'member_left',
+      message: `${left.name} (${left.role === 'agent' ? 'Agent' : 'Caller'}) left the team. Share the invite code to fill the seat.`,
+    })
+  );
+  res.json(await sessionInfo(await getAccount(account.id), null));
+});
+
+// Delete the login itself (asks for the password again).
+app.delete('/api/auth/account', async (req, res) => {
+  const account = await sessionAccount(req, res);
+  await deleteAccount(account, req.body?.password);
+  endSession(req, res);
+  res.json({ ok: true });
 });
 
 // ---------- Reminders ----------
@@ -162,7 +233,16 @@ app.get('/api/cron/reminders', async (req, res) => {
 });
 
 async function checkAllTeamsReminders() {
-  await forEachTeam(() => checkAndSendReminders());
+  await forEachTeam(async () => {
+    await checkAndSendReminders();
+    // Note any Zoom-only interviews before they pass and drop out of Zoom's list.
+    try {
+      const linked = new Set((await listDeals()).filter((d) => d.zoom_meeting_id).map((d) => d.zoom_meeting_id));
+      await getZoomOnlyMeetings(linked);
+    } catch (err) {
+      console.error('[stats] zoom sync failed', err.message);
+    }
+  });
 }
 
 // ---------- The gate ----------
@@ -176,6 +256,11 @@ app.use(async (req, res, next) => {
     if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'not_logged_in' });
     return res.redirect('/');
   }
+  if (!account.team_id) {
+    // Logged in but not in a team (just left one): nothing here to show them.
+    if (req.path.startsWith('/api/')) return res.status(403).json({ error: 'no_team' });
+    return res.redirect('/');
+  }
   req.user = account;
   // Who did something is whoever is logged in — never a name the browser sent.
   if (req.body && typeof req.body === 'object') {
@@ -184,12 +269,6 @@ app.use(async (req, res, next) => {
     }
   }
   withTeam(account.team_id, next);
-});
-
-app.delete('/api/auth/account', async (req, res) => {
-  await deleteAccount(req.user, req.body?.password);
-  endSession(req, res);
-  res.json({ ok: true });
 });
 
 // Server-side role check for the routes each role's page is built around, so
@@ -289,6 +368,7 @@ app.delete('/api/contacts/:id', async (req, res) => {
   const deals = await listDeals({ contact_id: contact.id });
   for (const deal of deals) {
     await cleanupZoomMeeting(deal);
+    await forgetMeeting(deal.stat_ref);
     await deleteDeal(deal.id);
     await deleteActivitiesFor({ deal_id: deal.id });
     await deleteNotificationsFor({ deal_id: deal.id });
@@ -386,6 +466,7 @@ app.delete('/api/deals/:id/meeting', callerOnly, async (req, res) => {
   const before = await getDeal(req.params.id);
   if (!before) return res.status(404).json({ error: 'not found' });
   await cleanupZoomMeeting(before);
+  await forgetMeeting(before.stat_ref);
   const deal = await cancelMeeting(req.params.id, { changed_by: req.body?.changed_by });
   if (before.scheduled_at) await notifyMeetingDeleted(before, req.body?.changed_by);
   res.json(deal);
@@ -407,7 +488,13 @@ app.post('/api/deals/:id/reschedule', callerOnly, async (req, res) => {
     }
   }
 
+  // Switching to a link typed in by hand: the Zoom meeting we made is no longer
+  // the one in use, so remove it rather than leave it in the agent's Zoom.
+  if (zoom_link && existing.zoom_meeting_id) await cleanupZoomMeeting(existing);
+
+  await backfillDealRefs([existing]);
   const deal = await rescheduleMeeting(req.params.id, { scheduled_at, zoom_link, changed_by });
+  await recordEvent('rescheduled', (await getDeal(deal.id)).stat_ref);
   await notifyRescheduleConfirmed(deal, changed_by);
   res.json(deal);
 });
@@ -417,9 +504,40 @@ app.post('/api/deals/:id/reschedule', callerOnly, async (req, res) => {
 app.post('/api/deals/:id/request-reschedule', agentOnly, async (req, res) => {
   const { remark, requested_by } = req.body;
   if (!remark) return res.status(400).json({ error: 'remark required' });
+  const before = await getDeal(req.params.id);
+  if (!before) return res.status(404).json({ error: 'not found' });
+  const isEdit = Boolean(before.reschedule_requested);
   const deal = await requestReschedule(req.params.id, { remark, requested_by });
-  if (!deal) return res.status(404).json({ error: 'not found' });
-  await notifyRescheduleRequested(deal, remark, requested_by);
+  // Sending again while the caller hasn't acted just changes the wording of the
+  // request they already have, instead of piling up a second one.
+  const open = isEdit ? await findOpenNotification({ type: 'reschedule_requested', deal_id: deal.id }) : null;
+  if (open) {
+    const contact = await getContact(deal.contact_id);
+    await reviseNotification(open.id, {
+      message: `${requested_by} changed the reschedule request for ${contact?.name || 'a client'}: "${remark}". Needs a new time.`,
+    });
+  } else {
+    await notifyRescheduleRequested(deal, remark, requested_by);
+  }
+  res.json(deal);
+});
+
+// The agent changed their mind before the caller picked a new time.
+app.delete('/api/deals/:id/request-reschedule', agentOnly, async (req, res) => {
+  const before = await getDeal(req.params.id);
+  if (!before?.reschedule_requested) return res.status(404).json({ error: 'There is no open reschedule request.' });
+  const by = req.user.name;
+  const deal = await withdrawRescheduleRequest(req.params.id, { by });
+  const open = await findOpenNotification({ type: 'reschedule_requested', deal_id: deal.id });
+  if (open) await markDone(open.id);
+  const contact = await getContact(deal.contact_id);
+  await createNotification({
+    type: 'reschedule_withdrawn',
+    deal_id: deal.id,
+    contact_id: deal.contact_id,
+    message: `${by} withdrew the reschedule request for ${contact?.name || 'a client'} — the meeting stays as booked.`,
+    from_name: by,
+  });
   res.json(deal);
 });
 
@@ -430,15 +548,37 @@ app.post('/api/zoom-meetings/:meetingId/request-reschedule', agentOnly, async (r
   const { remark, requested_by, topic, scheduled_at } = req.body;
   if (!remark) return res.status(400).json({ error: 'remark required' });
   const when = scheduled_at ? new Date(scheduled_at).toLocaleString() : 'the scheduled time';
+  const meta = { zoom_meeting_id: req.params.meetingId, topic: topic || null, scheduled_at: scheduled_at || null, remark };
+  const open = await findOpenNotification({ type: 'reschedule_requested', zoom_meeting_id: req.params.meetingId });
+  if (open) {
+    await reviseNotification(open.id, {
+      message: `${requested_by} changed the reschedule request for "${topic || 'a Zoom meeting'}" (${when}): "${remark}". Needs a new time.`,
+      meta,
+    });
+  } else {
+    await createNotification({
+      type: 'reschedule_requested',
+      deal_id: null,
+      contact_id: null,
+      message: `${requested_by || 'Someone'} asked to reschedule "${topic || 'a Zoom meeting'}" (${when}): "${remark}". Needs a new time.`,
+      from_name: requested_by,
+      meta,
+    });
+  }
+  res.json({ ok: true });
+});
+
+app.delete('/api/zoom-meetings/:meetingId/request-reschedule', agentOnly, async (req, res) => {
+  const open = await findOpenNotification({ type: 'reschedule_requested', zoom_meeting_id: req.params.meetingId });
+  if (!open) return res.status(404).json({ error: 'There is no open reschedule request.' });
+  await markDone(open.id);
+  const by = req.user.name;
   await createNotification({
-    type: 'reschedule_requested',
+    type: 'reschedule_withdrawn',
     deal_id: null,
     contact_id: null,
-    message: `${requested_by || 'Someone'} asked to reschedule "${
-      topic || 'a Zoom meeting'
-    }" (${when}): "${remark}". Needs a new time.`,
-    from_name: requested_by,
-    meta: { zoom_meeting_id: req.params.meetingId, topic: topic || null, scheduled_at: scheduled_at || null, remark },
+    message: `${by} withdrew the reschedule request for "${req.body?.topic || open.meta?.topic || 'a Zoom meeting'}" — the meeting stays as booked.`,
+    from_name: by,
   });
   res.json({ ok: true });
 });
@@ -454,23 +594,29 @@ app.post('/api/zoom-meetings/:meetingId/outcome', agentOnly, async (req, res) =>
   const config = FOLLOWUP_OUTCOMES[outcome];
   if (!config) return res.status(400).json({ error: 'invalid outcome' });
   const when = scheduled_at ? new Date(scheduled_at).toLocaleString() : 'the scheduled time';
-  await createNotification({
-    type: 'meeting_outcome',
-    deal_id: null,
-    contact_id: null,
-    message: `${made_by || 'Someone'} logged "${topic || 'a Zoom meeting'}" (${when}) as: ${config.label}.${
-      note ? ` Notes: ${note}` : ''
-    }`,
-    from_name: made_by,
-  });
+  const meta = { zoom_meeting_id: req.params.meetingId, outcome, note: note || '', topic: topic || null, scheduled_at: scheduled_at || null };
+  const noteText = note ? ` Notes: ${note}` : '';
+  // Logging again while the caller hasn't acted on it replaces the earlier entry.
+  const open = await findOpenNotification({ type: 'meeting_outcome', zoom_meeting_id: req.params.meetingId });
+  if (open) {
+    await reviseNotification(open.id, {
+      message: `${made_by} changed the outcome of "${topic || 'a Zoom meeting'}" (${when}) to: ${config.label}.${noteText}`,
+      meta,
+    });
+  } else {
+    await createNotification({
+      type: 'meeting_outcome',
+      deal_id: null,
+      contact_id: null,
+      message: `${made_by || 'Someone'} logged "${topic || 'a Zoom meeting'}" (${when}) as: ${config.label}.${noteText}`,
+      from_name: made_by,
+      meta,
+    });
+  }
+  await recordOnce('attended', `zoom-${req.params.meetingId}`);
   res.json({ ok: true });
 });
 
-// Deletes a meeting booked directly in Zoom — this actually cancels it on
-// Zoom for every invitee, unlike the CRM version which just clears the
-// deal's scheduling fields. Confirmed on the frontend before this fires.
-// Moves a meeting booked directly in Zoom to a new time — changes it on Zoom
-// itself (same join link), then tells the other role.
 app.post('/api/zoom-meetings/:meetingId/reschedule', callerOnly, async (req, res) => {
   const { scheduled_at, changed_by, topic } = req.body || {};
   if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at required' });
@@ -488,6 +634,8 @@ app.post('/api/zoom-meetings/:meetingId/reschedule', callerOnly, async (req, res
     from_name: changed_by,
   });
   await resolveZoomRescheduleRequests(req.params.meetingId);
+  await recordOnce('fixed', `zoom-${req.params.meetingId}`);
+  await recordEvent('rescheduled', `zoom-${req.params.meetingId}`);
   res.json({ ok: true });
 });
 
@@ -509,16 +657,35 @@ app.delete('/api/zoom-meetings/:meetingId', callerOnly, async (req, res) => {
     from_name: deleted_by,
   });
   await resolveZoomRescheduleRequests(req.params.meetingId);
+  await forgetMeeting(`zoom-${req.params.meetingId}`);
   res.json({ ok: true });
 });
 
 app.post('/api/deals/:id/followup', agentOnly, async (req, res) => {
   const { outcome, note, changed_by } = req.body;
   const before = await getDeal(req.params.id);
+  if (!before) return res.status(404).json({ error: 'not found' });
+  // Only while there's a meeting to log, or an earlier outcome to change (the
+  // caller booking, moving or deleting the meeting clears it — then it's locked).
+  if (before.stage !== 'meeting_booked' && !before.outcome) {
+    return res.status(400).json({ error: 'There is no meeting to log an outcome for.' });
+  }
+  const isEdit = Boolean(before.outcome);
   const deal = await logFollowUp(req.params.id, { outcome, note, changed_by });
   if (!deal) return res.status(400).json({ error: 'invalid deal or outcome' });
   if (deal.stage === 'lost') await cleanupZoomMeeting(before);
-  await notifyOutcome(deal, FOLLOWUP_OUTCOMES[outcome].label, note, changed_by);
+  await backfillDealRefs([before]);
+  await recordOnce('attended', (await getDeal(deal.id)).stat_ref);
+  const label = FOLLOWUP_OUTCOMES[outcome].label;
+  const open = isEdit ? await findOpenNotification({ type: 'meeting_outcome', deal_id: deal.id }) : null;
+  if (open) {
+    const contact = await getContact(deal.contact_id);
+    await reviseNotification(open.id, {
+      message: `${changed_by} changed the outcome of the meeting with ${contact?.name || 'a client'} to: ${label}.${note ? ` Notes: ${note}` : ''}`,
+    });
+  } else {
+    await notifyOutcome(deal, label, note, changed_by);
+  }
   res.json(deal);
 });
 
@@ -605,6 +772,16 @@ app.get('/api/summary/reschedule-requests', async (req, res) => {
   );
   items.sort((a, b) => new Date(b.requested_at) - new Date(a.requested_at));
   res.json(items);
+});
+
+// The Agent's Interviews page: how many interviews were fixed, how many he
+// actually went to, and how many were rescheduled (see lib/stats.js).
+app.get('/api/summary/interview-stats', agentOnly, async (req, res) => {
+  const deals = await listDeals();
+  await backfillDealRefs(deals);
+  // Pick up any interviews booked straight in Zoom that we haven't counted yet.
+  await getZoomOnlyMeetings(new Set(deals.filter((d) => d.zoom_meeting_id).map((d) => d.zoom_meeting_id)));
+  res.json(await interviewStats());
 });
 
 app.get('/api/summary/activities', async (req, res) => {

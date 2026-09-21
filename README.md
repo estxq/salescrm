@@ -20,7 +20,7 @@ external chat integration; it's a single shared source of truth.
   on the server, not just by hiding tabs. Caller sees Summary, Meetings,
   Contacts, Pipeline and handles calling and scheduling (adding contacts,
   scheduling, rescheduling, deleting meetings); Agent sees Summary, Meetings,
-  Contacts, Pipeline, Analytics and just attends the meetings (requesting
+  Contacts, Interviews, Analytics (no Pipeline) and just attends the meetings (requesting
   reschedules, logging follow-ups, connecting Zoom). Calling the other role's
   endpoints returns 403. Names on notes, bookings and notifications come from
   the logged-in account, never from what the browser sends.
@@ -59,14 +59,35 @@ external chat integration; it's a single shared source of truth.
   with who wrote it and when.
 - **Reschedule requests, not silent edits**: the agent can't rebook the
   caller's calendar, so "Agent: ask to reschedule" doesn't change the time
-  itself — it flags the deal with a remark and raises a notification for the caller. The
+  itself — it flags the deal with a remark and raises a notification for the caller
+  (who can be sent an updated or withdrawn request until they act). The
   deal card gets a "⚠ reschedule requested" badge and the Caller's Summary
   lists it, until the caller picks the actual new time via "Caller: confirm
   new time" — which is what notifies the agent of the change.
-- **Meeting follow-up** (agent only): once a meeting is booked, the agent's
-  deal modal shows a "Meeting follow-up" dropdown — **Ready to proceed** (→ Proposal), **Needs
-  another follow-up** (→ back to Contacted), or **Not interested** (→ Lost)
-  — plus an optional note.
+- **Meeting follow-up** (agent only): after a meeting the agent logs how it
+  went with just two choices — **Not interested** (→ Lost, and the Zoom meeting
+  is removed) or **Schedule another meeting** (→ back to Contacted, for the
+  caller to book) — plus an optional note. It works the same on Zoom-only
+  meetings.
+- **Changing your mind (agent)**: a reschedule request or a logged outcome can
+  be edited — or the request withdrawn — for as long as the caller hasn't acted
+  on it. Editing revises the caller's existing notification instead of adding
+  another. It locks once the caller books, moves or deletes that meeting (or
+  marks the notification done, for Zoom-only meetings). Meetings rows show a
+  "Reschedule requested" tag and the logged outcome.
+- **Interviews page** (agent, in place of Pipeline): three counters — interviews
+  fixed, interviews attended (ones he logged an outcome on) and reschedules made
+  — each with a this-month figure. They come from a small event log
+  (`lib/stats.js`); interviews booked straight in Zoom are counted the first time
+  the app sees them (whenever either of you opens it, or the daily job).
+- **Sending the client the details**: the caller sends the meeting details first
+  ("Send details" — right after booking, in the Meetings list and the deal
+  window), and the agent reconfirms nearer the date ("Send reminder", different
+  wording). Both open WhatsApp with the message ready.
+- **Only one Zoom meeting per interview**: rescheduling moves the same Zoom
+  meeting (so the join link stays the same). Booking again on a deal that
+  already had one, or switching it to a hand-typed link, deletes the old Zoom
+  meeting so only the new one is left.
 - **Proactive reminders**: a background check runs every 5 minutes (and
   once at startup) and raises a notification when a scheduled meeting is
   within `REMINDER_WINDOW_MIN` (default 60) minutes out. Each meeting is
@@ -193,6 +214,11 @@ account. One thing outside this app: a Zoom OAuth app in development mode can
 only be authorised by the Zoom account that created it — for other teams'
 agents to connect their own Zoom, the app has to be published on the Zoom
 Marketplace.
+
+**Leaving a team** (account menu → Leave team) removes you from it but keeps
+your login: the team, its data and its invite code stay, your teammate gets a
+notification and sees the invite code again for the free seat, and you land on a
+screen to join or start another team.
 
 **Deleting your account** (account menu → Delete my account, confirmed with
 your password) removes only your login. The team's contacts, meetings, Zoom
