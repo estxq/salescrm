@@ -32,6 +32,15 @@ external chat integration; it's a single shared source of truth.
   reason. A request on a CRM meeting opens the deal to pick the new time; a
   request on a Zoom-only meeting has a "Mark as done" (it also clears itself
   once the Caller moves or deletes that Zoom meeting in Meetings).
+- **Meetings that have happened stay on the calendar** (greyed out, and in
+  Meetings → Past) instead of disappearing. That covers a meeting whose deal
+  moved on after an outcome was logged, an earlier meeting replaced when another
+  one was booked for the same contact (kept on the deal as history), and
+  Zoom-only interviews — Zoom stops listing those the moment they end, so the app
+  remembers each one it sees (`lib/zoomlog.js`). The agent can still log or
+  change an outcome on one that's over. A Zoom meeting deleted before it happened
+  isn't kept, and a meeting that came and went without the app ever seeing it (or
+  the daily job) can't be recovered.
 - **Pipeline** (kanban): New Lead → Contacted → Meeting Booked → Proposal →
   Won / Lost. Drag a card between columns, or click it to open full deal
   detail — and a complete timestamped activity timeline, so there's nothing

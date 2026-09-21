@@ -374,7 +374,7 @@ function openCalendarMeeting(meeting) {
   if (meeting.source === 'zoom') {
     if (meeting.zoom_link) window.open(meeting.zoom_link, '_blank', 'noopener');
   } else {
-    openDealModal(meeting.id);
+    openDealModal(meeting.deal_id || meeting.id); // earlier meetings open their deal
   }
 }
 
@@ -458,7 +458,9 @@ async function renderCalendarCard() {
         .map((m, i) => {
           const isZoomOnly = m.source === 'zoom';
           const name = isZoomOnly ? m.title : m.contact?.name || 'Meeting';
-          return `<div class="cal-event" data-day="${day}" data-idx="${i}">${fmtTime(m.scheduled_at)} ${name}</div>`;
+          const past = new Date(m.scheduled_at).getTime() <= Date.now();
+          const tip = m.outcome ? ` title="${escapeHtml(m.outcome.label)}"` : '';
+          return `<div class="cal-event${past ? ' past' : ''}" data-day="${day}" data-idx="${i}"${tip}>${fmtTime(m.scheduled_at)} ${escapeHtml(name)}</div>`;
         })
         .join('');
       cells += `
@@ -541,16 +543,20 @@ async function renderMeetingsTab() {
   body.innerHTML = deals
     .map((d) => {
       const isZoomOnly = d.source === 'zoom';
+      const isHistory = d.source === 'history'; // an earlier meeting on a deal, replaced by a newer booking
+      const isPast = new Date(d.scheduled_at).getTime() <= Date.now();
       const name = isZoomOnly ? d.title : d.contact?.name ? `Call with ${d.contact.name}` : 'Meeting';
       const flags =
         (d.reschedule_requested
           ? `<span class="badge-warning" title="${escapeHtml(d.reschedule_requested.remark)}">Reschedule requested</span>`
           : '') + (d.outcome ? `<span class="badge-outcome">${escapeHtml(d.outcome.label)}</span>` : '');
       return `
-      <div class="meetings-row" data-id="${d.id}" ${isZoomOnly ? 'data-zoom-only="1"' : ''}>
+      <div class="meetings-row${isPast ? ' is-past' : ''}" data-id="${d.id}" ${isHistory ? `data-deal-id="${d.deal_id}"` : ''} ${isZoomOnly ? 'data-zoom-only="1"' : ''}>
         <div class="mt-name">${name}${flags ? `<div class="mt-flags">${flags}</div>` : ''}</div>
         <div class="mt-join">${
-          d.zoom_link
+          isHistory
+            ? ''
+            : d.zoom_link
             ? `<a href="${d.zoom_link}" target="_blank" rel="noopener" class="join-btn">Join</a>`
             : '<span class="join-btn join-disabled">Join</span>'
         }</div>
@@ -558,10 +564,22 @@ async function renderMeetingsTab() {
         <div class="mt-attendee">${isZoomOnly ? '' : avatarHtml(d.contact?.name)}</div>
         <div class="mt-owner">${isZoomOnly ? '<span class="hint">Zoom</span>' : avatarHtml(d.owner)}</div>
         <div class="mt-actions">${
-          isZoomOnly
+          isHistory
+            ? ''
+            : isZoomOnly
             ? currentRole === 'agent'
-              ? `<button class="zoom-resched-request-btn" data-id="${d.id}">${d.reschedule_requested ? 'Edit request' : 'Request reschedule'}</button>
-               <button class="zoom-outcome-btn" data-id="${d.id}">${d.outcome ? 'Edit outcome' : 'Log outcome'}</button>`
+              ? // Once a Zoom meeting is over there's nothing left to move, but the outcome can still be logged.
+                `${
+                  isPast
+                    ? ''
+                    : `<button class="zoom-resched-request-btn" data-id="${d.id}">${d.reschedule_requested ? 'Edit request' : 'Request reschedule'}</button>`
+                }${
+                  d.outcome && !d.outcome_editable
+                    ? ''
+                    : `<button class="zoom-outcome-btn" data-id="${d.id}">${d.outcome ? 'Edit outcome' : 'Log outcome'}</button>`
+                }`
+              : isPast
+              ? ''
               : `<button class="resched-btn" data-id="${d.id}">Reschedule</button>
                <button class="zoom-delete-btn" data-id="${d.id}">Delete meeting</button>`
             : `${
@@ -592,7 +610,7 @@ async function renderMeetingsTab() {
         e.target.closest('.crm-delete-btn')
       )
         return;
-      openDealModal(row.dataset.id);
+      openDealModal(row.dataset.dealId || row.dataset.id);
     });
   });
   // Zoom-only meetings (booked directly in Zoom, not via the CRM pipeline)
@@ -885,6 +903,13 @@ async function openDealModal(id, opts = {}) {
             contact.phone,
             confirmMeetingMessage(contact.name, deal.scheduled_at, deal.zoom_link)
           )}" target="_blank" rel="noopener" class="whatsapp-btn" style="margin-top:8px">${sendLabel()} to client</a>`
+        : ''
+    }
+    ${
+      (deal.past_meetings || []).length
+        ? `<div class="mnotes" style="margin-top:8px">Earlier meetings: ${deal.past_meetings
+            .map((h) => `${fmtWhen(h.scheduled_at)}${h.outcome ? ` (${escapeHtml(h.outcome.label)})` : ''}`)
+            .join(' · ')}</div>`
         : ''
     }
     ${

@@ -56,6 +56,7 @@ import {
   notifyRemark,
 } from './lib/notify.js';
 import { listNotifications, markRead, markDone, markAllRead, unreadCount, deleteNotificationsFor, deleteNotification, createNotification, resolveZoomRescheduleRequests, findOpenNotification, reviseNotification } from './lib/notifications.js';
+import { readZoomLog, syncZoomLog, setZoomOutcome, forgetZoomMeeting } from './lib/zoomlog.js';
 import { recordOnce, recordEvent, recordZoomMeetingsSeen, forgetMeeting, backfillDealRefs, interviewStats } from './lib/stats.js';
 import { buildIcs, googleCalendarLink } from './lib/calendar.js';
 import { checkAndSendReminders } from './lib/reminders.js';
@@ -83,44 +84,87 @@ async function cleanupZoomMeeting(dealBefore) {
 // Meetings tab reflects the agent's real calendar, not just sales deals.
 async function getZoomOnlyMeetings(linkedZoomMeetingIds) {
   if (!(await zoom.isConnected())) return [];
+
+  // Zoom's list is only what's still upcoming. If it can't be reached, fall back
+  // on what we remembered so the calendar doesn't lose its history too.
+  let live = null;
   try {
-    const meetings = (await zoom.listMeetings()).filter((m) => !linkedZoomMeetingIds.has(m.id));
-    await recordZoomMeetingsSeen(meetings.map((m) => m.id));
-
-    // With no deal to hang state on, an open request or logged outcome for one
-    // of these lives in the notifications — surface it so the agent can edit it.
-    const open = await listNotifications({ status: 'new' });
-    const latest = (type) => {
-      const byMeeting = new Map();
-      open.filter((n) => n.type === type && n.meta?.zoom_meeting_id != null).forEach((n) => {
-        if (!byMeeting.has(String(n.meta.zoom_meeting_id))) byMeeting.set(String(n.meta.zoom_meeting_id), n); // newest first
-      });
-      return byMeeting;
-    };
-    const requests = latest('reschedule_requested');
-    const outcomes = latest('meeting_outcome');
-
-    return meetings.map((m) => {
-      const req = requests.get(String(m.id));
-      const out = outcomes.get(String(m.id));
-      return {
-        id: `zoom-${m.id}`,
-        source: 'zoom',
-        title: m.topic,
-        zoom_link: m.join_url,
-        scheduled_at: m.start_time,
-        contact: null,
-        owner: 'Zoom',
-        reschedule_requested: req ? { remark: req.meta.remark, requested_by: req.from_name, requested_at: req.created_at } : null,
-        outcome: out
-          ? { key: out.meta.outcome, label: FOLLOWUP_OUTCOMES[out.meta.outcome]?.label || out.meta.outcome, note: out.meta.note || '' }
-          : null,
-      };
-    });
+    live = (await zoom.listMeetings()).filter((m) => !linkedZoomMeetingIds.has(m.id));
+    await recordZoomMeetingsSeen(live.map((m) => m.id));
   } catch (err) {
     console.error('[zoom] list meetings failed', err.message);
-    return [];
   }
+  let log;
+  if (live) {
+    log = await syncZoomLog(live);
+  } else {
+    const now = Date.now();
+    const entries = await readZoomLog();
+    log = { byId: new Map(entries.map((e) => [String(e.zoom_id), e])), past: entries.filter((e) => new Date(e.start_time).getTime() <= now) };
+  }
+
+  // With no deal to hang state on, an open request or logged outcome for one
+  // of these lives in the notifications — surface it so the agent can edit it.
+  const open = await listNotifications({ status: 'new' });
+  const latest = (type) => {
+    const byMeeting = new Map();
+    open.filter((n) => n.type === type && n.meta?.zoom_meeting_id != null).forEach((n) => {
+      if (!byMeeting.has(String(n.meta.zoom_meeting_id))) byMeeting.set(String(n.meta.zoom_meeting_id), n); // newest first
+    });
+    return byMeeting;
+  };
+  const requests = latest('reschedule_requested');
+  const outcomes = latest('meeting_outcome');
+
+  const shape = (zoomId, topic, startTime, joinUrl, isPast) => {
+    const req = isPast ? null : requests.get(String(zoomId));
+    const openOutcome = outcomes.get(String(zoomId));
+    const kept = log.byId.get(String(zoomId))?.outcome;
+    const key = kept?.key || openOutcome?.meta?.outcome;
+    return {
+      id: `zoom-${zoomId}`,
+      source: 'zoom',
+      title: topic,
+      zoom_link: joinUrl,
+      scheduled_at: startTime,
+      contact: null,
+      owner: 'Zoom',
+      reschedule_requested: req ? { remark: req.meta.remark, requested_by: req.from_name, requested_at: req.created_at } : null,
+      // Kept with the meeting so it still shows once the meeting is over; only
+      // editable while the caller hasn't acted on it (their notification is open).
+      outcome: key ? { key, label: FOLLOWUP_OUTCOMES[key]?.label || key, note: kept?.note ?? openOutcome?.meta?.note ?? '' } : null,
+      outcome_editable: Boolean(openOutcome),
+    };
+  };
+
+  const liveShaped = (live || []).map((m) => shape(m.id, m.topic, m.start_time, m.join_url, false));
+  const pastShaped = log.past
+    .filter((e) => !linkedZoomMeetingIds.has(e.zoom_id))
+    .map((e) => shape(e.zoom_id, e.topic, e.start_time, '', true));
+  return liveShaped.concat(pastShaped);
+}
+
+// Earlier meetings on a deal that were replaced by a newer booking — they
+// happened, so they stay on the calendar as history.
+async function pastMeetingsOf(deals) {
+  const out = [];
+  for (const d of deals) {
+    const contact = (d.past_meetings || []).length ? await getContact(d.contact_id) : null;
+    (d.past_meetings || []).forEach((h, i) =>
+      out.push({
+        id: `hist-${d.id}-${i}`,
+        source: 'history',
+        deal_id: d.id,
+        scheduled_at: h.scheduled_at,
+        zoom_link: '',
+        contact,
+        owner: d.owner,
+        outcome: h.outcome || null,
+        reschedule_requested: null,
+      })
+    );
+  }
+  return out;
 }
 
 // Books a meeting on a deal: creates the real Zoom meeting when Zoom is
@@ -414,18 +458,16 @@ app.get('/api/stages', (req, res) => res.json(STAGES.map((s) => ({ key: s, label
 app.get('/api/meetings', async (req, res) => {
   const when = req.query.when || 'all';
   const now = Date.now();
+  const inRange = (m) => {
+    const t = new Date(m.scheduled_at).getTime();
+    return when === 'upcoming' ? t > now : when === 'past' ? t <= now : true;
+  };
   const allDeals = (await listDeals()).filter((d) => d.scheduled_at);
-  let deals = allDeals;
-  if (when === 'upcoming') deals = deals.filter((d) => new Date(d.scheduled_at).getTime() > now);
-  if (when === 'past') deals = deals.filter((d) => new Date(d.scheduled_at).getTime() <= now);
-  const withContacts = await Promise.all(deals.map(async (d) => ({ ...d, contact: await getContact(d.contact_id) })));
-
-  let combined = withContacts;
-  if (when !== 'past') {
-    // Zoom's API only lists upcoming meetings, so there's nothing to add for "past".
-    const linkedIds = new Set(allDeals.filter((d) => d.zoom_meeting_id).map((d) => d.zoom_meeting_id));
-    combined = combined.concat(await getZoomOnlyMeetings(linkedIds));
-  }
+  const withContacts = await Promise.all(allDeals.filter(inRange).map(async (d) => ({ ...d, contact: await getContact(d.contact_id) })));
+  const linkedIds = new Set(allDeals.filter((d) => d.zoom_meeting_id).map((d) => d.zoom_meeting_id));
+  const zoomOnly = (await getZoomOnlyMeetings(linkedIds)).filter(inRange);
+  const history = (await pastMeetingsOf(await listDeals())).filter(inRange);
+  const combined = withContacts.concat(zoomOnly, history);
   combined.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
   res.json(combined);
 });
@@ -613,6 +655,7 @@ app.post('/api/zoom-meetings/:meetingId/outcome', agentOnly, async (req, res) =>
       meta,
     });
   }
+  await setZoomOutcome(req.params.meetingId, { topic, start_time: scheduled_at }, { key: outcome, note: note || '', logged_at: new Date().toISOString() });
   await recordOnce('attended', `zoom-${req.params.meetingId}`);
   res.json({ ok: true });
 });
@@ -658,6 +701,7 @@ app.delete('/api/zoom-meetings/:meetingId', callerOnly, async (req, res) => {
   });
   await resolveZoomRescheduleRequests(req.params.meetingId);
   await forgetMeeting(`zoom-${req.params.meetingId}`);
+  await forgetZoomMeeting(req.params.meetingId); // deleted on purpose: not history
   res.json({ ok: true });
 });
 
@@ -802,26 +846,25 @@ app.get('/api/summary/month', async (req, res) => {
   const monthIndex = m ? m - 1 : now.getMonth();
   const monthStart = new Date(year, monthIndex, 1);
   const monthEnd = new Date(year, monthIndex + 1, 1);
-
-  const allDeals = await listDeals({ stage: 'meeting_booked' });
-  const deals = allDeals.filter((d) => {
-    if (!d.scheduled_at) return false;
-    const t = new Date(d.scheduled_at).getTime();
+  const inMonth = (meeting) => {
+    const t = new Date(meeting.scheduled_at).getTime();
     return t >= monthStart.getTime() && t < monthEnd.getTime();
-  });
-  const withContacts = await Promise.all(deals.map(async (d) => ({ ...d, contact: await getContact(d.contact_id) })));
+  };
+
+  // Every deal with a meeting on it, whatever stage it's in now — logging an
+  // outcome moves the deal on, but the meeting still happened and stays put.
+  const everyDeal = await listDeals();
+  const allDeals = everyDeal.filter((d) => d.scheduled_at);
+  const withContacts = await Promise.all(allDeals.filter(inMonth).map(async (d) => ({ ...d, contact: await getContact(d.contact_id) })));
 
   const linkedIds = new Set(allDeals.filter((d) => d.zoom_meeting_id).map((d) => d.zoom_meeting_id));
-  const zoomOnly = (await getZoomOnlyMeetings(linkedIds)).filter((zm) => {
-    const t = new Date(zm.scheduled_at).getTime();
-    return t >= monthStart.getTime() && t < monthEnd.getTime();
-  });
-  const combined = withContacts.concat(zoomOnly);
+  const zoomOnly = (await getZoomOnlyMeetings(linkedIds)).filter(inMonth);
+  const history = (await pastMeetingsOf(everyDeal)).filter(inMonth);
+  const combined = withContacts.concat(zoomOnly, history);
   combined.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
   res.json(combined);
 });
 
-// ---------- Analytics ----------
 app.get('/api/analytics', agentOnly, async (req, res) => {
   const deals = await listDeals();
 
