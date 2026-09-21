@@ -866,16 +866,6 @@ async function openDealModal(id) {
     }
 
     ${
-      isAgent
-        ? ''
-        : `<div class="section-head"><h2>Remarks</h2></div>
-    <div class="mactions">
-      <input id="m-remark" placeholder="Write a remark…" style="flex:1" />
-      <button id="m-add-remark">Save remark</button>
-    </div>`
-    }
-
-    ${
       deal.reschedule_requested
         ? `<div class="banner-warning">
             <strong>Reschedule requested</strong> by ${deal.reschedule_requested.requested_by} (${fmtWhen(deal.reschedule_requested.requested_at)}):
@@ -910,6 +900,16 @@ async function openDealModal(id) {
         ? `<div class="mnotes"><a href="${calendarLinks.googleCalendarUrl}" target="_blank" rel="noopener">Add to Google Calendar</a> · <a href="${calendarLinks.icsUrl}">Download .ics</a></div>`
         : ''
     }`
+    }
+
+    ${
+      isAgent
+        ? ''
+        : `<div class="section-head"><h2>Remarks</h2></div>
+    <div class="mactions">
+      <input id="m-remark" placeholder="Write a remark…" style="flex:1" />
+      <button id="m-add-remark">Save remark</button>
+    </div>`
     }
 
     ${
