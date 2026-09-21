@@ -910,3 +910,10 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 .months-table tbody tr.selected { background: var(--accent-weak); }
 .months-table tbody tr.selected th { color: var(--accent); }
 .months-table td.zero { color: #b6bcc6; }
+
+/* ---------- Analytics: year + month dropdowns ---------- */
+.analytics-picker { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.analytics-picker select { font: inherit; font-size: 13px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); cursor: pointer; }
+.an-today { font: inherit; font-size: 12px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--card); color: var(--muted); cursor: pointer; white-space: nowrap; }
+.an-today[hidden] { display: none; }
+.months-table tfoot th, .months-table tfoot td { border-top: 2px solid var(--border); border-bottom: none; font-weight: 700; }

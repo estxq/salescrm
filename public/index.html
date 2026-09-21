@@ -235,10 +235,10 @@
       <section id="tab-analytics" class="tab-panel">
         <div class="analytics-head">
           <h2 id="analytics-month-label">…</h2>
-          <div class="schedule-nav">
-            <button id="an-prev" aria-label="Previous month">‹</button>
-            <button id="an-today" class="calendar-nav-today">This month</button>
-            <button id="an-next" aria-label="Next month">›</button>
+          <div class="analytics-picker">
+            <select id="an-month" aria-label="Month"></select>
+            <select id="an-year" aria-label="Year"></select>
+            <button id="an-today" class="an-today">This month</button>
           </div>
         </div>
         <div id="stat-cards" class="stat-cards interview-cards"></div>
@@ -249,7 +249,7 @@
           </div>
         </div>
         <div class="card months-card">
-          <h3>Month by month</h3>
+          <h3 id="months-title">Month by month</h3>
           <div class="table-scroll">
             <table id="months-table" class="months-table"></table>
           </div>

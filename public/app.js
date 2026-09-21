@@ -1365,10 +1365,20 @@ async function renderAnalyticsTab() {
   if (analyticsMonth) params.set('month', analyticsMonth);
   const a = await api(`/api/analytics?${params}`);
   analyticsMonth = a.month;
+  const [selYear, selMonth] = a.month.split('-').map(Number);
+  const [curYear, curMonth] = a.current_month.split('-').map(Number);
 
   $('#analytics-month-label').textContent = monthName(a.month);
-  $('#an-next').disabled = a.month >= a.current_month; // nothing to show in the future
   $('#an-today').hidden = a.month === a.current_month;
+
+  // Year and month pickers. The year list grows by itself as years go by; months
+  // that haven't happened yet in the current year can't be picked.
+  $('#an-year').innerHTML = a.years.map((y) => `<option value="${y}"${y === selYear ? ' selected' : ''}>${y}</option>`).join('');
+  $('#an-month').innerHTML = Array.from({ length: 12 }, (_, i) => {
+    const label = new Date(2000, i, 1).toLocaleDateString(undefined, { month: 'long' });
+    const future = selYear === curYear && i + 1 > curMonth;
+    return `<option value="${i + 1}"${i + 1 === selMonth ? ' selected' : ''}${future ? ' disabled' : ''}>${label}</option>`;
+  }).join('');
 
   const prevName = monthName(shiftMonthKey(a.month, -1), { month: 'short' });
   const versus = (now, before) =>
@@ -1397,15 +1407,17 @@ async function renderAnalyticsTab() {
     )
     .join('')}</div>`;
 
-  // Overview of the last twelve months; click a row to look at that month.
+  // Every month of the chosen year, with a total; click a row to open that month.
   const num = (n) => `<td class="${n ? '' : 'zero'}">${n}</td>`;
+  const sum = (key) => a.months.reduce((total, m) => total + m[key], 0);
+  $('#months-title').textContent = `Month by month — ${selYear}`;
   $('#months-table').innerHTML =
     `<thead><tr><th>Month</th><th>Fixed</th><th>Attended</th><th>Rescheduled</th><th>Not interested</th><th>Another meeting</th></tr></thead><tbody>${a.months
       .map(
         (m) =>
-          `<tr data-month="${m.month}" class="${m.month === a.month ? 'selected' : ''}"><th>${monthName(m.month)}</th>${num(m.fixed)}${num(m.attended)}${num(m.rescheduled)}${num(m.not_interested)}${num(m.follow_up)}</tr>`
+          `<tr data-month="${m.month}" class="${m.month === a.month ? 'selected' : ''}"><th>${monthName(m.month, { month: 'long' })}</th>${num(m.fixed)}${num(m.attended)}${num(m.rescheduled)}${num(m.not_interested)}${num(m.follow_up)}</tr>`
       )
-      .join('')}</tbody>`;
+      .join('')}</tbody><tfoot><tr><th>${selYear} total</th>${num(sum('fixed'))}${num(sum('attended'))}${num(sum('rescheduled'))}${num(sum('not_interested'))}${num(sum('follow_up'))}</tr></tfoot>`;
   $$('#months-table tbody tr').forEach((row) =>
     row.addEventListener('click', () => {
       analyticsMonth = row.dataset.month;
@@ -1413,14 +1425,18 @@ async function renderAnalyticsTab() {
     })
   );
 }
-$('#an-prev').addEventListener('click', () => {
-  analyticsMonth = shiftMonthKey(analyticsMonth || thisMonthKey(), -1);
+
+// Picking a year or month: keep the other one, but never land on a month that hasn't happened.
+function pickAnalyticsMonth() {
+  const year = Number($('#an-year').value);
+  let month = Number($('#an-month').value);
+  const [curYear, curMonth] = thisMonthKey().split('-').map(Number);
+  if (year === curYear && month > curMonth) month = curMonth;
+  analyticsMonth = `${year}-${String(month).padStart(2, '0')}`;
   renderAnalyticsTab();
-});
-$('#an-next').addEventListener('click', () => {
-  analyticsMonth = shiftMonthKey(analyticsMonth || thisMonthKey(), 1);
-  renderAnalyticsTab();
-});
+}
+$('#an-month').addEventListener('change', pickAnalyticsMonth);
+$('#an-year').addEventListener('change', pickAnalyticsMonth);
 $('#an-today').addEventListener('click', () => {
   analyticsMonth = null;
   renderAnalyticsTab();
