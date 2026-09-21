@@ -41,11 +41,11 @@ external chat integration; it's a single shared source of truth.
   agent and vice versa) and tagged with who sent it. "Mark as done" moves a
   notification from the **New** tab to the **Old** tab, where it stays as
   history.
-- **Scheduling only once they're interested**: a new contact starts as a
-  Potential Client; the caller marks them **Interested** (or **Not
-  interested**) in the deal modal, and only then does the "Schedule meeting"
-  section appear. (Adding a contact with a meeting time in the New contact
-  form books it straight away.)
+- **Scheduling moves the deal along**: a new contact starts as a Potential
+  Client and the caller books a meeting when they're interested, either in
+  the deal modal or straight from the New contact form. Booking moves the
+  deal to Scheduled a Meeting; other stage changes happen by dragging cards
+  on the Pipeline board, or via the agent's meeting follow-up.
 - **Remarks**: a plain "Remarks" box on every deal for anything that doesn't
   fit anywhere else — logged straight to the activity timeline
   with who wrote it and when.

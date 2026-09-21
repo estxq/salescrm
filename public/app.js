@@ -864,16 +864,6 @@ async function openDealModal(id) {
     }
 
     ${
-      !isAgent && (deal.stage === 'new' || deal.stage === 'contacted')
-        ? `<div class="section-head"><h2>Update progress</h2></div>
-    <div class="mactions">
-      ${deal.stage === 'new' ? '<button id="m-mark-interested" class="primary">Interested</button>' : ''}
-      <button id="m-mark-not-interested" class="danger">Not interested</button>
-    </div>`
-        : ''
-    }
-
-    ${
       isAgent
         ? ''
         : `<div class="section-head"><h2>Remarks</h2></div>
@@ -895,9 +885,7 @@ async function openDealModal(id) {
     ${
       isAgent
         ? ''
-        : deal.stage === 'new'
-        ? '<div class="hint" style="margin-top:14px">Mark them Interested to schedule a meeting.</div>'
-        : !['contacted', 'proposal', 'meeting_booked'].includes(deal.stage)
+        : ['won', 'lost'].includes(deal.stage)
         ? ''
         : `<div class="section-head"><h2>${deal.stage === 'meeting_booked' ? 'Reschedule' : 'Schedule meeting'}</h2></div>
     <div class="mactions">
@@ -947,25 +935,6 @@ async function openDealModal(id) {
 
   $('#modal-body').innerHTML = body;
   $('#modal-overlay').hidden = false;
-
-  if (deal.stage === 'new' && $('#m-mark-interested')) {
-    $('#m-mark-interested').addEventListener('click', async () => {
-      await api(`/api/deals/${id}/stage`, {
-        method: 'POST',
-        body: JSON.stringify({ stage: 'contacted', changed_by: currentUser() }),
-      });
-      closeModal(); refresh();
-    });
-  }
-  if ((deal.stage === 'new' || deal.stage === 'contacted') && $('#m-mark-not-interested')) {
-    $('#m-mark-not-interested').addEventListener('click', async () => {
-      await api(`/api/deals/${id}/stage`, {
-        method: 'POST',
-        body: JSON.stringify({ stage: 'lost', changed_by: currentUser() }),
-      });
-      closeModal(); refresh();
-    });
-  }
 
   if ($('#m-add-remark')) {
     $('#m-add-remark').addEventListener('click', async () => {
