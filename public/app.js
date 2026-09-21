@@ -669,7 +669,10 @@ async function renderMeetingsTab() {
       const meeting = deals.find((d) => String(d.id) === btn.dataset.id);
       if (!confirm(`Delete "${meeting?.title || 'this meeting'}"? This cancels it in Zoom for everyone invited.`)) return;
       const zoomId = btn.dataset.id.replace('zoom-', '');
-      await api(`/api/zoom-meetings/${zoomId}`, { method: 'DELETE' });
+      await api(`/api/zoom-meetings/${zoomId}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ deleted_by: currentUser(), topic: meeting?.title, scheduled_at: meeting?.scheduled_at }),
+      });
       renderMeetingsTab();
     });
   });
@@ -1154,7 +1157,7 @@ async function renderContactsTab(q) {
           )
         )
           return;
-        await api(`/api/contacts/${c.id}`, { method: 'DELETE' });
+        await api(`/api/contacts/${c.id}`, { method: 'DELETE', body: JSON.stringify({ deleted_by: currentUser() }) });
         inlineFormClosed();
         renderContactsTab($('#contact-search').value);
       });

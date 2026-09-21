@@ -33,7 +33,14 @@ import { listActivities, logActivity, markEmailOpened, deleteActivitiesFor } fro
 import { listTemplates, getTemplate, createTemplate, updateTemplate, deleteTemplate } from './lib/templates.js';
 import { renderTemplate, newTrackingToken, sendEmail, TRACKING_PIXEL } from './lib/mailer.js';
 import { fetchLeads } from './lib/sheets.js';
-import { notifyScheduled, notifyRescheduleConfirmed, notifyRescheduleRequested } from './lib/notify.js';
+import {
+  notifyScheduled,
+  notifyRescheduleConfirmed,
+  notifyRescheduleRequested,
+  notifyMeetingDeleted,
+  notifyOutcome,
+  notifyRemark,
+} from './lib/notify.js';
 import { listNotifications, markRead, markAllRead, unreadCount, deleteNotificationsFor, deleteNotification, createNotification } from './lib/notifications.js';
 import { buildIcs, googleCalendarLink } from './lib/calendar.js';
 import { checkAndSendReminders } from './lib/reminders.js';
@@ -162,6 +169,19 @@ app.delete('/api/contacts/:id', async (req, res) => {
   await deleteActivitiesFor({ contact_id: contact.id });
   await deleteNotificationsFor({ contact_id: contact.id });
   await deleteContact(contact.id);
+  // Only worth a heads-up if it wiped out meetings on someone's calendar. Sent
+  // after the cascade, with no deal/contact ids, so the cascade can't eat it.
+  const cancelled = deals.filter((d) => d.scheduled_at).length;
+  if (cancelled) {
+    const by = req.body?.deleted_by;
+    await createNotification({
+      type: 'contact_deleted',
+      deal_id: null,
+      contact_id: null,
+      message: `${by || 'Someone'} deleted ${contact.name}, which cancelled ${cancelled} booked meeting${cancelled > 1 ? 's' : ''}.`,
+      from_name: by,
+    });
+  }
   res.json({ deleted: true, contact_id: contact.id, deals_removed: deals.length });
 });
 
@@ -255,6 +275,7 @@ app.delete('/api/deals/:id/meeting', async (req, res) => {
   if (!before) return res.status(404).json({ error: 'not found' });
   await cleanupZoomMeeting(before);
   const deal = await cancelMeeting(req.params.id, { changed_by: req.body?.changed_by });
+  if (before.scheduled_at) await notifyMeetingDeleted(before, req.body?.changed_by);
   res.json(deal);
 });
 
@@ -324,9 +345,9 @@ app.post('/api/zoom-meetings/:meetingId/outcome', async (req, res) => {
     type: 'meeting_outcome',
     deal_id: null,
     contact_id: null,
-    message: `${made_by || 'Someone'} logged "${topic || 'a Zoom meeting'}" (${when}) as: ${config.label}${
-      note ? ` — ${note}` : ''
-    }.`,
+    message: `${made_by || 'Someone'} logged "${topic || 'a Zoom meeting'}" (${when}) as: ${config.label}.${
+      note ? ` Notes: ${note}` : ''
+    }`,
     from_name: made_by,
   });
   res.json({ ok: true });
@@ -342,6 +363,16 @@ app.delete('/api/zoom-meetings/:meetingId', async (req, res) => {
   } catch (err) {
     return res.status(502).json({ error: `Zoom delete failed: ${err.message}` });
   }
+  const { deleted_by, topic, scheduled_at } = req.body || {};
+  await createNotification({
+    type: 'meeting_deleted',
+    deal_id: null,
+    contact_id: null,
+    message: `${deleted_by || 'Someone'} deleted "${topic || 'a Zoom meeting'}"${
+      scheduled_at ? ` (${new Date(scheduled_at).toLocaleString()})` : ''
+    } from Zoom.`,
+    from_name: deleted_by,
+  });
   res.json({ ok: true });
 });
 
@@ -351,6 +382,7 @@ app.post('/api/deals/:id/followup', async (req, res) => {
   const deal = await logFollowUp(req.params.id, { outcome, note, changed_by });
   if (!deal) return res.status(400).json({ error: 'invalid deal or outcome' });
   if (deal.stage === 'lost') await cleanupZoomMeeting(before);
+  await notifyOutcome(deal, FOLLOWUP_OUTCOMES[outcome].label, note, changed_by);
   res.json(deal);
 });
 
@@ -371,6 +403,7 @@ app.post('/api/deals/:id/call', async (req, res) => {
 app.post('/api/deals/:id/note', async (req, res) => {
   const deal = await addNote(req.params.id, req.body || {});
   if (!deal) return res.status(404).json({ error: 'not found' });
+  if (req.body?.note) await notifyRemark(deal, req.body.note, req.body.changed_by);
   res.json(deal);
 });
 
