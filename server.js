@@ -324,7 +324,7 @@ app.post('/api/zoom-meetings/:meetingId/request-reschedule', async (req, res) =>
     contact_id: null,
     message: `${requested_by || 'Someone'} asked to reschedule "${
       topic || 'a Zoom meeting'
-    }" (${when}): "${remark}". Caller please move it directly in Zoom.`,
+    }" (${when}): "${remark}". Needs a new time.`,
     from_name: requested_by,
   });
   res.json({ ok: true });
@@ -356,6 +356,27 @@ app.post('/api/zoom-meetings/:meetingId/outcome', async (req, res) => {
 // Deletes a meeting booked directly in Zoom — this actually cancels it on
 // Zoom for every invitee, unlike the CRM version which just clears the
 // deal's scheduling fields. Confirmed on the frontend before this fires.
+// Moves a meeting booked directly in Zoom to a new time — changes it on Zoom
+// itself (same join link), then tells the other role.
+app.post('/api/zoom-meetings/:meetingId/reschedule', async (req, res) => {
+  const { scheduled_at, changed_by, topic } = req.body || {};
+  if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at required' });
+  if (!(await zoom.isConnected())) return res.status(400).json({ error: 'Zoom not connected' });
+  try {
+    await zoom.updateMeetingTime(req.params.meetingId, { startTime: scheduled_at });
+  } catch (err) {
+    return res.status(502).json({ error: `Zoom reschedule failed: ${err.message}` });
+  }
+  await createNotification({
+    type: 'rescheduled',
+    deal_id: null,
+    contact_id: null,
+    message: `${changed_by || 'Someone'} moved "${topic || 'a Zoom meeting'}" to ${new Date(scheduled_at).toLocaleString()}.`,
+    from_name: changed_by,
+  });
+  res.json({ ok: true });
+});
+
 app.delete('/api/zoom-meetings/:meetingId', async (req, res) => {
   if (!(await zoom.isConnected())) return res.status(400).json({ error: 'Zoom not connected' });
   try {

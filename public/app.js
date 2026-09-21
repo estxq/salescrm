@@ -198,7 +198,7 @@ async function renderNotifDropdown() {
     .slice(0, 20)
     .map(
       (n) => `
-      <div class="notif-item ${n.read_at ? '' : 'unread'}${n.from_role ? ` from-${n.from_role}` : ''}" data-id="${n.id}" data-deal="${n.deal_id || ''}">
+      <div class="notif-item ${n.read_at ? '' : 'unread'}${n.from_role ? ` from-${n.from_role}` : ''}" data-id="${n.id}" data-deal="${n.deal_id || ''}" data-type="${n.type}">
         ${n.from_name ? `<span class="n-from">From ${n.from_name}</span>` : ''}
         <div class="n-msg">${n.message}</div>
         <div class="n-row-bottom">
@@ -217,6 +217,8 @@ async function renderNotifDropdown() {
       if (item.dataset.deal) {
         activateTab('pipeline');
         openDealModal(item.dataset.deal);
+      } else if (item.dataset.type === 'reschedule_requested') {
+        activateTab('meetings'); // Zoom-only meeting: no deal to open, the Reschedule button lives here
       }
     });
   });
@@ -552,7 +554,7 @@ async function renderMeetingsTab() {
               ? `<button class="zoom-resched-request-btn" data-id="${d.id}">Request reschedule</button>
                <button class="zoom-outcome-btn" data-id="${d.id}">Log outcome</button>
                <button class="zoom-delete-btn" data-id="${d.id}">Delete meeting</button>`
-              : ''
+              : `<button class="resched-btn" data-id="${d.id}">Reschedule</button>`
             : `${
                 d.contact?.phone
                   ? `<a href="${whatsappLink(
@@ -702,10 +704,21 @@ async function renderMeetingsTab() {
         ev.stopPropagation();
         const val = form.querySelector('.ir-time').value;
         if (!val) return;
-        await api(`/api/deals/${btn.dataset.id}/reschedule`, {
-          method: 'POST',
-          body: JSON.stringify({ scheduled_at: new Date(val).toISOString(), changed_by: currentUser() }),
-        });
+        const zoomOnly = String(btn.dataset.id).startsWith('zoom-');
+        const meeting = zoomOnly ? deals.find((d) => String(d.id) === btn.dataset.id) : null;
+        await api(
+          zoomOnly
+            ? `/api/zoom-meetings/${btn.dataset.id.replace('zoom-', '')}/reschedule`
+            : `/api/deals/${btn.dataset.id}/reschedule`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              scheduled_at: new Date(val).toISOString(),
+              changed_by: currentUser(),
+              topic: meeting?.title,
+            }),
+          }
+        );
         inlineFormClosed();
         renderMeetingsTab();
       });
