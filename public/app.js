@@ -552,9 +552,9 @@ async function renderMeetingsTab() {
           isZoomOnly
             ? currentRole === 'agent'
               ? `<button class="zoom-resched-request-btn" data-id="${d.id}">Request reschedule</button>
-               <button class="zoom-outcome-btn" data-id="${d.id}">Log outcome</button>
+               <button class="zoom-outcome-btn" data-id="${d.id}">Log outcome</button>`
+              : `<button class="resched-btn" data-id="${d.id}">Reschedule</button>
                <button class="zoom-delete-btn" data-id="${d.id}">Delete meeting</button>`
-              : `<button class="resched-btn" data-id="${d.id}">Reschedule</button>`
             : `${
                 d.contact?.phone
                   ? `<a href="${whatsappLink(
@@ -906,7 +906,7 @@ async function openDealModal(id) {
       deal.reschedule_requested
         ? `<div class="banner-warning">
             <strong>Reschedule requested</strong> by ${deal.reschedule_requested.requested_by} (${fmtWhen(deal.reschedule_requested.requested_at)}):
-            <em>"${deal.reschedule_requested.remark}"</em> — pick a new time below to resolve it.
+            <em>"${deal.reschedule_requested.remark}"</em>${isAgent ? ' — waiting for the Caller to set a new time.' : ' — pick a new time below to resolve it.'}
           </div>`
         : ''
     }
@@ -919,6 +919,7 @@ async function openDealModal(id) {
       <input id="m-time" type="datetime-local" />
       ${ZOOM_STATUS.connected ? '' : `<input id="m-zoom" placeholder="Zoom link" value="${deal.zoom_link || ''}" />`}
       <button id="m-schedule" class="primary">${deal.stage === 'meeting_booked' ? 'Reschedule' : 'Schedule'}</button>
+      ${deal.stage === 'meeting_booked' ? '<button id="m-delete-meeting" class="danger">Delete meeting</button>' : ''}
     </div>
     ${
       ZOOM_STATUS.connected
@@ -937,14 +938,11 @@ async function openDealModal(id) {
     }
 
     ${
-      deal.stage === 'meeting_booked'
-        ? `<div class="section-head"><h2>Request reschedule</h2><span class="hint">Flags it for whoever manages the calendar, without changing the time yourself</span></div>
+      isAgent && deal.stage === 'meeting_booked'
+        ? `<div class="section-head"><h2>Request reschedule</h2><span class="hint">Flags it for the Caller, who sets the new time</span></div>
     <div class="mactions">
       <input id="m-resched-remark" placeholder="Reason (e.g. running late, client asked to push)" style="flex:1" />
       <button id="m-request-reschedule">Send request</button>
-    </div>
-    <div class="mactions" style="margin-top:8px">
-      <button id="m-delete-meeting" class="danger">Delete meeting</button>
     </div>`
         : ''
     }
@@ -1057,15 +1055,17 @@ async function openDealModal(id) {
   }
 
   if (deal.stage === 'meeting_booked') {
-    $('#m-request-reschedule').addEventListener('click', async () => {
-      const remark = $('#m-resched-remark').value.trim();
-      if (!remark) return alert('Add a short reason.');
-      await api(`/api/deals/${id}/request-reschedule`, {
-        method: 'POST',
-        body: JSON.stringify({ remark, requested_by: currentUser() }),
+    if ($('#m-request-reschedule')) {
+      $('#m-request-reschedule').addEventListener('click', async () => {
+        const remark = $('#m-resched-remark').value.trim();
+        if (!remark) return alert('Add a short reason.');
+        await api(`/api/deals/${id}/request-reschedule`, {
+          method: 'POST',
+          body: JSON.stringify({ remark, requested_by: currentUser() }),
+        });
+        openDealModal(id); refresh();
       });
-      openDealModal(id); refresh();
-    });
+    }
 
     $('#m-log-followup').addEventListener('click', async () => {
       await api(`/api/deals/${id}/followup`, {
