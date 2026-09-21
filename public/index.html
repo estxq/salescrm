@@ -16,12 +16,9 @@
     <nav class="sidebar-nav">
       <button class="side-item tab-btn active" data-tab="summary"><span class="side-item-icon">⌂</span><span>Summary</span></button>
       <button class="side-item tab-btn" data-tab="meetings"><span class="side-item-icon">▣</span><span>Meetings</span></button>
+      <button class="side-item tab-btn" data-tab="contacts"><span class="side-item-icon">☺</span><span>Contacts</span></button>
       <button class="side-item tab-btn" data-tab="pipeline"><span class="side-item-icon">◧</span><span>Pipeline</span></button>
       <button class="side-item tab-btn" data-tab="analytics"><span class="side-item-icon">▤</span><span>Analytics</span></button>
-    </nav>
-    <div class="side-section-label">Records</div>
-    <nav class="sidebar-nav">
-      <button class="side-item tab-btn" data-tab="contacts"><span class="side-item-icon">☺</span><span>Contacts</span></button>
     </nav>
   </aside>
 
@@ -55,8 +52,8 @@
       <nav class="tabs">
         <button class="tab-btn active" data-tab="summary">Summary</button>
         <button class="tab-btn" data-tab="meetings">Meetings</button>
-        <button class="tab-btn" data-tab="pipeline">Pipeline</button>
         <button class="tab-btn" data-tab="contacts">Contacts</button>
+        <button class="tab-btn" data-tab="pipeline">Pipeline</button>
         <button class="tab-btn" data-tab="analytics">Analytics</button>
       </nav>
     </div>
@@ -68,24 +65,13 @@
     <main>
       <!-- SUMMARY -->
       <section id="tab-summary" class="tab-panel active">
-        <div class="summary-grid">
-          <div id="tasks-card" class="card summary-col">
-            <h3>Your tasks</h3>
-            <div id="tasks-body">Loading…</div>
-          </div>
-          <div id="schedule-card" class="card summary-col schedule-col">
-            <div class="schedule-head">
-              <h3>Schedule</h3>
-              <div class="schedule-nav">
-                <button id="sched-prev">‹</button>
-                <span id="sched-date"></span>
-                <button id="sched-next">›</button>
-              </div>
-            </div>
-            <div id="schedule-body">Loading…</div>
+        <div id="summary-grid" class="summary-grid">
+          <div id="requests-card" class="card summary-col" hidden>
+            <h3>Reschedule requests</h3>
+            <div id="requests-body">Loading…</div>
           </div>
           <div id="calendar-card" class="card calendar-col" hidden>
-            <div class="calendar-upcoming">
+            <div id="calendar-upcoming" class="calendar-upcoming">
               <h4 id="calendar-upcoming-heading">Upcoming</h4>
               <div id="calendar-upcoming-list">Loading…</div>
             </div>

@@ -358,22 +358,6 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 }
 .summary-col h3 { font-size: 15px; margin: 0 0 14px; }
 
-.task-stats { display: flex; gap: 24px; margin-bottom: 16px; }
-.task-stat .tval { font-size: 28px; font-weight: 700; }
-.task-stat .tlabel { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
-
-.task-links { display: flex; flex-direction: column; gap: 10px; }
-.task-link {
-  display: flex; align-items: center; justify-content: space-between;
-  font-size: 13px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border);
-  background: none; border-left: none; border-right: none; border-top: none;
-  cursor: pointer; text-align: left; width: 100%;
-  color: var(--text);
-}
-.task-link .count { font-weight: 700; color: var(--accent); }
-
 .activity-feed { display: flex; flex-direction: column; gap: 2px; max-height: 340px; overflow-y: auto; }
 .activity-item {
   display: flex;
@@ -410,20 +394,33 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
   width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--border);
   background: white; cursor: pointer;
 }
-.schedule-slot {
-  display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px;
-}
-.schedule-slot .s-time { color: var(--muted); width: 64px; flex-shrink: 0; }
-.schedule-slot .s-name { font-weight: 600; }
-.schedule-slot .s-actions { margin-left: auto; display: flex; gap: 6px; }
-.schedule-slot .s-actions button { font-size: 11px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border); background: white; cursor: pointer; }
-
 @media (max-width: 900px) {
   .summary-grid { grid-template-columns: 1fr; }
 }
 
 /* ---------- Month calendar (Agent's Summary view) ---------- */
 .calendar-col { grid-column: 1 / -1; }
+/* Caller: requests on the left, calendar on the right */
+.summary-grid.caller-summary { grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); }
+.caller-summary .calendar-col { grid-column: auto; }
+.calendar-upcoming[hidden] { display: none !important; }
+@media (max-width: 900px) {
+  .summary-grid.caller-summary { grid-template-columns: 1fr; }
+}
+
+/* ---------- Reschedule requests (Caller's Summary) ---------- */
+.request-item { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.request-item:first-child { padding-top: 0; }
+.request-item:last-child { border-bottom: none; padding-bottom: 0; }
+.request-top { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.request-name { font-weight: 600; font-size: 13px; }
+.request-when { font-size: 12px; color: var(--muted); text-align: right; }
+.request-remark { font-size: 13px; margin: 6px 0 8px; padding-left: 10px; border-left: 3px solid #7c3aed; color: var(--text); }
+.request-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.request-by { font-size: 11px; color: var(--muted); }
+.request-actions { display: flex; gap: 6px; }
+.request-actions button { font-size: 11px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: white; cursor: pointer; }
+.request-actions button.primary { background: var(--accent); border-color: var(--accent); color: white; }
 .schedule-nav button.calendar-nav-today {
   width: auto; height: auto;
   font-size: 11px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border);
@@ -448,7 +445,7 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 .upcoming-item .u-whatsapp { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: #e6f7ec; color: #1a7d3f; text-decoration: none; flex-shrink: 0; }
 .calendar-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 6px;
 }
 .cal-weekday {
@@ -460,6 +457,7 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
   padding: 4px 0;
 }
 .cal-day {
+  min-width: 0;
   min-height: 96px;
   border: 1px solid var(--border);
   border-radius: 8px;

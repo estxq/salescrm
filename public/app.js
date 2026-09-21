@@ -93,8 +93,8 @@ $$('.tab-btn').forEach((btn) => {
 // hits the same open API underneath — this is a decluttering convenience,
 // not access control (there's no real auth in this app).
 const ROLE_TABS = {
-  caller: ['summary', 'meetings', 'pipeline', 'contacts'],
-  agent: ['summary', 'pipeline', 'meetings', 'analytics', 'contacts'],
+  caller: ['summary', 'meetings', 'contacts', 'pipeline'],
+  agent: ['summary', 'meetings', 'contacts', 'pipeline', 'analytics'],
 };
 
 let currentRole = 'agent';
@@ -114,17 +114,15 @@ function applyRoleVisibility(role) {
     el.hidden = role !== 'caller';
   });
   if (role !== 'caller') setContactsView('list');
-  // The agent's job is attending meetings, not chasing sales-pipeline tasks
-  // (calls to make, stale proposals — those are Caller metrics and
-  // always read 0 for him) — so his Summary is just a month-glance calendar
-  // instead of the task list + single-day view everyone else gets.
-  const isAgentSummary = role === 'agent';
-  const tasksCard = $('#tasks-card');
-  const scheduleCard = $('#schedule-card');
-  const calendarCard = $('#calendar-card');
-  if (tasksCard) tasksCard.hidden = isAgentSummary;
-  if (scheduleCard) scheduleCard.hidden = isAgentSummary;
-  if (calendarCard) calendarCard.hidden = !isAgentSummary;
+  // Both roles get the month calendar on Summary so they see the same picture
+  // of the interview schedule. The Agent gets the next-meeting list on top; the
+  // Caller instead gets Arron's reschedule requests beside it — that's the only
+  // thing on Summary he needs to act on.
+  const isCaller = role === 'caller';
+  $('#requests-card').hidden = !isCaller;
+  $('#calendar-card').hidden = false;
+  $('#calendar-upcoming').hidden = isCaller;
+  $('#summary-grid').classList.toggle('caller-summary', isCaller);
   if ($('#tab-summary').classList.contains('active')) renderSummaryTab();
   refreshNotifCount(); // the bell only counts what's addressed to this role
 }
@@ -289,10 +287,8 @@ document.addEventListener('click', (e) => {
 });
 
 // =====================================================================
-// SUMMARY (HubSpot-style: Your tasks / Your outreach / Schedule)
+// SUMMARY (Agent: month calendar + next meetings. Caller: reschedule requests + month calendar)
 // =====================================================================
-let scheduleDate = new Date();
-
 function fmtTime(iso) {
   return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
@@ -312,73 +308,56 @@ function withRetry(el, fn) {
   });
 }
 
-async function renderTasksCard() {
-  const el = $('#tasks-body');
-  await withRetry(el, async () => {
-    const t = await api('/api/summary/tasks');
-    el.innerHTML = `
-      <div class="task-stats">
-        <div class="task-stat"><div class="tval">${t.highPriority}</div><div class="tlabel">High priority</div></div>
-        <div class="task-stat"><div class="tval">${t.allTasks}</div><div class="tlabel">All tasks</div></div>
-      </div>
-      <div class="task-links">
-        <button class="task-link" data-jump="pipeline"><span>Calls to make</span><span class="count">${t.calls}</span></button>
-        <button class="task-link" data-jump="pipeline"><span>Stale proposals (3+ days)</span><span class="count">${t.staleProposals}</span></button>
-        <button class="task-link" data-jump="pipeline"><span>Meetings today</span><span class="count">${t.meetingsToday}</span></button>
-        <button class="task-link" data-jump="pipeline"><span>Reschedule requests</span><span class="count">${t.rescheduleRequests}</span></button>
-      </div>
-    `;
-    $$('#tasks-body .task-link').forEach((btn) => btn.addEventListener('click', () => activateTab(btn.dataset.jump)));
-  });
+function escapeHtml(text) {
+  return String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-async function renderScheduleCard() {
-  $('#sched-date').textContent = scheduleDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-  const el = $('#schedule-body');
+// Caller's Summary: what Arron has asked to move and why. Deal meetings open
+// the deal to pick a new time; Zoom-only ones live in the Meetings tab.
+async function renderRequestsCard() {
+  const el = $('#requests-body');
   await withRetry(el, async () => {
-    const dateParam = scheduleDate.toISOString().slice(0, 10);
-    const deals = await api(`/api/summary/schedule?date=${dateParam}`);
-    if (!deals.length) {
-      el.innerHTML = '<div class="empty">Nothing scheduled this day.</div>';
+    const items = await api('/api/summary/reschedule-requests');
+    if (!items.length) {
+      el.innerHTML = '<div class="empty">No reschedule requests from Arron.</div>';
       return;
     }
-    el.innerHTML = deals
-      .map((d) => {
-        const isZoomOnly = d.source === 'zoom';
-        const name = isZoomOnly ? d.title : d.contact?.name || 'unknown';
-        return `
-        <div class="schedule-slot" data-id="${d.id}">
-          <span class="s-time">${fmtTime(d.scheduled_at)}</span>
-          <span class="s-name">${name}${d.reschedule_requested ? ' <span class="badge-warning">Reschedule requested</span>' : ''}</span>
-          <span class="s-actions">
+    el.innerHTML = items
+      .map(
+        (r, i) => `
+      <div class="request-item" data-idx="${i}">
+        <div class="request-top">
+          <span class="request-name">${escapeHtml(r.name)}</span>
+          <span class="request-when">${r.scheduled_at ? fmtWhen(r.scheduled_at) : ''}</span>
+        </div>
+        <div class="request-remark">${r.remark ? `“${escapeHtml(r.remark)}”` : '<em>No reason given</em>'}</div>
+        <div class="request-foot">
+          <span class="request-by">${escapeHtml(r.requested_by || 'Arron')} · ${fmtWhen(r.requested_at)}</span>
+          <span class="request-actions">
             ${
-              isZoomOnly
-                ? d.zoom_link
-                  ? `<a href="${d.zoom_link}" target="_blank" rel="noopener">Join</a>`
-                  : ''
-                : '<button data-action="view">View</button>'
+              r.kind === 'deal'
+                ? '<button class="request-open primary">Reschedule</button>'
+                : '<button class="request-meetings">Open in Meetings</button><button class="request-done">Mark as done</button>'
             }
           </span>
-        </div>`;
-      })
+        </div>
+      </div>`
+      )
       .join('');
-    $$('#schedule-body .schedule-slot').forEach((slot) => {
-      const viewBtn = slot.querySelector('[data-action="view"]');
-      if (viewBtn) viewBtn.addEventListener('click', () => openDealModal(slot.dataset.id));
+    $$('#requests-body .request-item').forEach((row) => {
+      const r = items[Number(row.dataset.idx)];
+      row.querySelector('.request-open')?.addEventListener('click', () => openDealModal(r.deal_id));
+      row.querySelector('.request-meetings')?.addEventListener('click', () => activateTab('meetings'));
+      row.querySelector('.request-done')?.addEventListener('click', async () => {
+        await api(`/api/notifications/${r.notification_id}/done`, { method: 'POST' });
+        renderRequestsCard();
+        refreshNotifCount();
+      });
     });
   });
 }
 
-$('#sched-prev').addEventListener('click', () => {
-  scheduleDate.setDate(scheduleDate.getDate() - 1);
-  renderScheduleCard();
-});
-$('#sched-next').addEventListener('click', () => {
-  scheduleDate.setDate(scheduleDate.getDate() + 1);
-  renderScheduleCard();
-});
-
-// ---------- Month calendar (Agent's Summary view) ----------
+// ---------- Month calendar (Summary, both roles) ----------
 let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const CAL_MAX_VISIBLE = 3;
@@ -516,7 +495,7 @@ async function renderSummaryTab() {
   if (currentRole === 'agent') {
     await Promise.all([renderCalendarUpcoming(), renderCalendarCard()]);
   } else {
-    await Promise.all([renderTasksCard(), renderScheduleCard()]);
+    await Promise.all([renderRequestsCard(), renderCalendarCard()]);
   }
 }
 

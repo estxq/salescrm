@@ -10,20 +10,21 @@ external chat integration; it's a single shared source of truth.
 
 - **Role-based views**: switching "Acting as" between Caller / Agent
   changes which tabs are visible, matching what each role actually does —
-  Caller sees Summary, Meetings, Pipeline, Contacts and handles
-  calling and scheduling; Agent sees Summary, Meetings, Pipeline,
-  Analytics, Contacts and just attends the meetings. The "Connect Zoom"
+  Caller sees Summary, Meetings, Contacts, Pipeline and handles
+  calling and scheduling; Agent sees Summary, Meetings, Contacts, Pipeline,
+  Analytics and just attends the meetings. The "Connect Zoom"
   control only appears for Agent, since it's their own personal account —
   everyone else just sees a read-only connected/not-connected status. This
   is a decluttering convenience, not access control: there's no real auth,
   so the underlying API is open to whichever role is selected.
-- **Summary dashboard** (the landing page): a HubSpot-style layout — dark
-  sidebar, "Sales | \<you\>" header — with three columns: **Your tasks**
-  (high priority count, calls to make, stale
-  proposals, meetings today, reschedule requests — each clickable), **Your
-  outreach activities** (a live feed across every deal), and **Schedule** (a
-  day-by-day view with prev/next navigation, so today's meetings are one
-  glance away).
+- **Summary** (the landing page): both roles get the same month calendar of
+  meetings (CRM meetings plus Zoom-only ones like interviews). The **Agent**
+  also gets an "Upcoming" list of the next day's meetings above it. The
+  **Caller** gets no upcoming list — instead a **Reschedule requests** card
+  beside the calendar showing only what Arron has asked to move and his
+  reason. A request on a CRM meeting opens the deal to pick the new time; a
+  request on a Zoom-only meeting has a "Mark as done" (it also clears itself
+  once the Caller moves or deletes that Zoom meeting in Meetings).
 - **Pipeline** (kanban): New Lead → Contacted → Meeting Booked → Proposal →
   Won / Lost. Drag a card between columns, or click it to open full deal
   detail — and a complete timestamped activity timeline, so there's nothing
@@ -52,8 +53,8 @@ external chat integration; it's a single shared source of truth.
 - **Reschedule requests, not silent edits**: the agent can't rebook the
   caller's calendar, so "Agent: ask to reschedule" doesn't change the time
   itself — it flags the deal with a remark and raises a notification for the caller. The
-  deal card gets a "⚠ reschedule requested" badge and the Summary tasks
-  column counts it, until the caller picks the actual new time via "Caller: confirm
+  deal card gets a "⚠ reschedule requested" badge and the Caller's Summary
+  lists it, until the caller picks the actual new time via "Caller: confirm
   new time" — which is what notifies the agent of the change.
 - **Meeting follow-up** (agent only): once a meeting is booked, the agent's
   deal modal shows a "Meeting follow-up" dropdown — **Ready to proceed** (→ Proposal), **Needs
@@ -114,7 +115,7 @@ Every API call surfaces failures with a red banner at the top of the page
 silently — if you see a card stuck loading with no banner, that's a real
 bug worth reporting, not just the server being temporarily restarted. Each
 Summary card also fails independently with its own "retry" link, so one
-slow or broken endpoint can't freeze the other two.
+slow or broken endpoint can't freeze the other.
 
 ## Deploying to Vercel
 

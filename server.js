@@ -38,7 +38,7 @@ import {
   notifyOutcome,
   notifyRemark,
 } from './lib/notify.js';
-import { listNotifications, markRead, markDone, markAllRead, unreadCount, deleteNotificationsFor, deleteNotification, createNotification } from './lib/notifications.js';
+import { listNotifications, markRead, markDone, markAllRead, unreadCount, deleteNotificationsFor, deleteNotification, createNotification, resolveZoomRescheduleRequests } from './lib/notifications.js';
 import { buildIcs, googleCalendarLink } from './lib/calendar.js';
 import { checkAndSendReminders } from './lib/reminders.js';
 import * as zoom from './lib/zoom.js';
@@ -357,6 +357,7 @@ app.post('/api/zoom-meetings/:meetingId/request-reschedule', async (req, res) =>
       topic || 'a Zoom meeting'
     }" (${when}): "${remark}". Needs a new time.`,
     from_name: requested_by,
+    meta: { zoom_meeting_id: req.params.meetingId, topic: topic || null, scheduled_at: scheduled_at || null, remark },
   });
   res.json({ ok: true });
 });
@@ -405,6 +406,7 @@ app.post('/api/zoom-meetings/:meetingId/reschedule', async (req, res) => {
     message: `${changed_by || 'Someone'} moved "${topic || 'a Zoom meeting'}" to ${new Date(scheduled_at).toLocaleString()}.`,
     from_name: changed_by,
   });
+  await resolveZoomRescheduleRequests(req.params.meetingId);
   res.json({ ok: true });
 });
 
@@ -425,6 +427,7 @@ app.delete('/api/zoom-meetings/:meetingId', async (req, res) => {
     } from Zoom.`,
     from_name: deleted_by,
   });
+  await resolveZoomRescheduleRequests(req.params.meetingId);
   res.json({ ok: true });
 });
 
@@ -486,28 +489,41 @@ app.get('/api/deals/:id/calendar-link', async (req, res) => {
   });
 });
 
-// ---------- Summary dashboard (HubSpot-style "Your tasks / Outreach / Schedule") ----------
-app.get('/api/summary/tasks', async (req, res) => {
-  const deals = await listDeals();
-  const today = new Date().toDateString();
-
-  const callsDue = deals.filter((d) => d.stage === 'new');
-  const staleProposals = deals.filter((d) => {
-    if (d.stage !== 'proposal') return false;
-    const days = (Date.now() - new Date(d.updated_at).getTime()) / 86400000;
-    return days >= 3;
-  });
-  const meetingsToday = deals.filter((d) => d.stage === 'meeting_booked' && d.scheduled_at && new Date(d.scheduled_at).toDateString() === today);
-  const rescheduleRequests = deals.filter((d) => d.reschedule_requested);
-
-  res.json({
-    highPriority: meetingsToday.length + staleProposals.length + rescheduleRequests.length,
-    allTasks: callsDue.length + staleProposals.length + meetingsToday.length + rescheduleRequests.length,
-    calls: callsDue.length,
-    staleProposals: staleProposals.length,
-    meetingsToday: meetingsToday.length,
-    rescheduleRequests: rescheduleRequests.length,
-  });
+// ---------- Summary: reschedule requests (Caller's Summary) ----------
+// What the agent has asked to move, and why. Deal-based requests come from the
+// deals themselves (they clear as soon as the Caller picks a new time);
+// requests on Zoom-only meetings exist only as notifications, so those are
+// read from the still-open ones.
+app.get('/api/summary/reschedule-requests', async (req, res) => {
+  const deals = (await listDeals()).filter((d) => d.reschedule_requested);
+  const items = await Promise.all(
+    deals.map(async (d) => ({
+      kind: 'deal',
+      deal_id: d.id,
+      name: (await getContact(d.contact_id))?.name || 'unknown',
+      scheduled_at: d.scheduled_at,
+      remark: d.reschedule_requested.remark,
+      requested_by: d.reschedule_requested.requested_by,
+      requested_at: d.reschedule_requested.requested_at,
+    }))
+  );
+  const zoomRequests = (await listNotifications({ role: 'caller', status: 'new' })).filter(
+    (n) => n.type === 'reschedule_requested' && n.meta?.zoom_meeting_id != null
+  );
+  zoomRequests.forEach((n) =>
+    items.push({
+      kind: 'zoom',
+      notification_id: n.id,
+      zoom_meeting_id: n.meta.zoom_meeting_id,
+      name: n.meta.topic || 'Zoom meeting',
+      scheduled_at: n.meta.scheduled_at,
+      remark: n.meta.remark,
+      requested_by: n.from_name,
+      requested_at: n.created_at,
+    })
+  );
+  items.sort((a, b) => new Date(b.requested_at) - new Date(a.requested_at));
+  res.json(items);
 });
 
 app.get('/api/summary/activities', async (req, res) => {
@@ -519,24 +535,8 @@ app.get('/api/summary/activities', async (req, res) => {
   res.json(withContacts);
 });
 
-app.get('/api/summary/schedule', async (req, res) => {
-  const date = req.query.date ? new Date(req.query.date) : new Date();
-  const dayStr = date.toDateString();
-  const allDeals = await listDeals({ stage: 'meeting_booked' });
-  const deals = allDeals.filter((d) => d.scheduled_at && new Date(d.scheduled_at).toDateString() === dayStr);
-  const withContacts = await Promise.all(deals.map(async (d) => ({ ...d, contact: await getContact(d.contact_id) })));
-
-  const linkedIds = new Set(allDeals.filter((d) => d.zoom_meeting_id).map((d) => d.zoom_meeting_id));
-  const zoomOnly = (await getZoomOnlyMeetings(linkedIds)).filter(
-    (m) => new Date(m.scheduled_at).toDateString() === dayStr
-  );
-  const combined = withContacts.concat(zoomOnly);
-  combined.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
-  res.json(combined);
-});
-
-// Same idea as /api/summary/schedule but for a whole month, so the Agent's
-// calendar view can show which days have meetings without one request per day.
+// Every meeting in a month, so the Summary calendar (both roles) can show
+// which days have meetings without one request per day.
 app.get('/api/summary/month', async (req, res) => {
   const [y, m] = (req.query.month || '').split('-').map(Number);
   const now = new Date();
