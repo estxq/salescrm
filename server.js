@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 // reach the error-handling middleware below instead.
 import 'express-async-errors';
 
-import { listUsers, createUser, updateUser } from './lib/users.js';
+import { listUsers, createUser, updateUser, deleteUser } from './lib/users.js';
 import { listContacts, getContact, findContactByPhone, createContact, updateContact, deleteContact } from './lib/contacts.js';
 import {
   STAGES,
@@ -19,7 +19,6 @@ import {
   getNextMeeting,
   createDeal,
   moveStage,
-  proposeTime,
   scheduleMeeting,
   cancelMeeting,
   rescheduleMeeting,
@@ -95,6 +94,11 @@ app.patch('/api/users/:id', async (req, res) => {
   const user = await updateUser(req.params.id, req.body || {});
   if (!user) return res.status(404).json({ error: 'not found' });
   res.json(user);
+});
+app.delete('/api/users/:id', async (req, res) => {
+  const removed = await deleteUser(req.params.id);
+  if (!removed) return res.status(404).json({ error: 'not found' });
+  res.json({ ok: true });
 });
 
 // ---------- Leads (Google Sheet) ----------
@@ -219,26 +223,6 @@ app.post('/api/deals/:id/stage', async (req, res) => {
   res.json(deal);
 });
 
-// The caller records the time the client agreed to on the call — no Zoom
-// meeting gets created here, this just hands it off to the PA to confirm
-// and actually book (see /schedule below, which clears this once it does).
-app.post('/api/deals/:id/propose-time', async (req, res) => {
-  const { proposed_at, proposed_by } = req.body;
-  if (!proposed_at) return res.status(400).json({ error: 'proposed_at required' });
-  const deal = await proposeTime(req.params.id, { proposed_at, proposed_by });
-  if (!deal) return res.status(404).json({ error: 'not found' });
-  const contact = await getContact(deal.contact_id);
-  await createNotification({
-    type: 'time_proposed',
-    deal_id: deal.id,
-    contact_id: deal.contact_id,
-    message: `${proposed_by || 'Caller'} proposed ${new Date(proposed_at).toLocaleString()} for a meeting with ${
-      contact?.name || 'a client'
-    } — PA to confirm and create the Zoom link.`,
-  });
-  res.json(deal);
-});
-
 app.post('/api/deals/:id/schedule', async (req, res) => {
   const { zoom_link, scheduled_at, changed_by } = req.body;
   if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at required' });
@@ -295,8 +279,8 @@ app.post('/api/deals/:id/reschedule', async (req, res) => {
   res.json(deal);
 });
 
-// The agent flags a problem with a remark; the PA is the one who actually
-// picks the new time via the /reschedule route above.
+// The agent flags a problem with a remark; the caller is the one who
+// actually picks the new time via the /reschedule route above.
 app.post('/api/deals/:id/request-reschedule', async (req, res) => {
   const { remark, requested_by } = req.body;
   if (!remark) return res.status(400).json({ error: 'remark required' });
@@ -319,7 +303,7 @@ app.post('/api/zoom-meetings/:meetingId/request-reschedule', async (req, res) =>
     contact_id: null,
     message: `${requested_by || 'Someone'} asked to reschedule "${
       topic || 'a Zoom meeting'
-    }" (${when}): "${remark}". PA please move it directly in Zoom.`,
+    }" (${when}): "${remark}". Caller please move it directly in Zoom.`,
   });
   res.json({ ok: true });
 });

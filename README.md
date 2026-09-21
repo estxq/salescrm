@@ -1,6 +1,6 @@
 # Schedule Hub
 
-A small in-house CRM for a caller / PA / agent team, inspired by the parts of
+A small in-house CRM for a caller / agent team, inspired by the parts of
 HubSpot Sales Hub that were actually going to get used: a contact list, a
 deal pipeline, call logging, email templates with open tracking, real Zoom
 meetings, and a reporting dashboard. Everything — scheduling, remarks,
@@ -9,10 +9,11 @@ external chat integration; it's a single shared source of truth.
 
 ## What's in it
 
-- **Role-based views**: switching "Acting as" between Caller / PA / Agent
+- **Role-based views**: switching "Acting as" between Caller / Agent
   changes which tabs are visible, matching what each role actually does —
-  Caller sees Summary, Pipeline, Contacts; PA adds Meetings + Templates;
-  Agent adds Meetings + Analytics instead of Templates. The "Connect Zoom"
+  Caller sees Summary, Meetings, Pipeline, Templates, Contacts and handles
+  calling, scheduling and emailing; Agent sees Summary, Meetings, Pipeline,
+  Analytics, Contacts and just attends the meetings. The "Connect Zoom"
   control only appears for Agent, since it's their own personal account —
   everyone else just sees a read-only connected/not-connected status. This
   is a decluttering convenience, not access control: there's no real auth,
@@ -44,12 +45,12 @@ external chat integration; it's a single shared source of truth.
 - **Remarks**: a plain "Remarks" box on every deal for anything that doesn't
   fit a call log or follow-up — logged straight to the activity timeline
   with who wrote it and when.
-- **Reschedule requests, not silent edits**: the agent can't rebook the PA's
-  calendar, so "Agent: ask to reschedule" doesn't change the time itself —
-  it flags the deal with a remark and raises a notification for the PA. The
+- **Reschedule requests, not silent edits**: the agent can't rebook the
+  caller's calendar, so "Agent: ask to reschedule" doesn't change the time
+  itself — it flags the deal with a remark and raises a notification for the caller. The
   deal card gets a "⚠ reschedule requested" badge and the Summary tasks
-  column counts it, until the PA picks the actual new time via "PA: confirm
-  new time" — which is what notifies the agent and caller of the change.
+  column counts it, until the caller picks the actual new time via "Caller: confirm
+  new time" — which is what notifies the agent of the change.
 - **Meeting follow-up**: once a meeting is booked, the deal modal shows a
   "Meeting follow-up" dropdown — **Ready to proceed** (→ Proposal), **Needs
   another follow-up** (→ back to Contacted), or **Not interested** (→ Lost)
