@@ -134,20 +134,30 @@
 
       <!-- CONTACTS -->
       <section id="tab-contacts" class="tab-panel">
-        <div class="section-head">
-          <h2>Contacts</h2>
-          <div class="row-actions">
-            <input id="contact-search" placeholder="Search contacts…" />
-            <button id="import-leads-btn" class="add-contact-control">Import leads from sheet</button>
+        <div id="contacts-viewbar" class="meetings-toolbar add-contact-control">
+          <div class="meetings-subtabs">
+            <button class="contacts-subtab active" data-contacts-view="list">All contacts</button>
+            <button class="contacts-subtab" data-contacts-view="new">New contact</button>
           </div>
         </div>
-        <div id="contacts-list" class="meeting-list"></div>
 
-        <div id="add-contact-block" class="add-contact-control">
+        <div id="contacts-view-list">
+          <div class="section-head">
+            <h2>Contacts</h2>
+            <div class="row-actions">
+              <input id="contact-search" placeholder="Search contacts…" />
+              <button id="import-leads-btn" class="add-contact-control">Import leads from sheet</button>
+            </div>
+          </div>
+          <div id="contacts-list" class="meeting-list"></div>
+        </div>
+
+        <div id="contacts-view-new" hidden>
           <div class="section-head"><h2>New contact</h2></div>
           <form id="contact-form" class="card form">
             <label>Name <input name="name" required /></label>
-            <label>Phone <input name="phone" placeholder="6591234567" /></label>
+            <label>Phone <input name="phone" placeholder="6591234567" autocomplete="off" /></label>
+            <div id="cf-phone-warning" class="form-warning" hidden></div>
             <label>Email <input name="email" type="email" placeholder="client@example.com" /></label>
             <label><span>Schedule a Zoom meeting <span class="hint">(optional)</span></span>
               <input name="scheduled_at" type="datetime-local" />

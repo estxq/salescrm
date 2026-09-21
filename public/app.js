@@ -22,15 +22,22 @@ function hideConnBanner() {
 }
 
 async function api(path, opts) {
+  let res;
   try {
-    const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
-    if (!res.ok) throw new Error(`${path} -> ${res.status}`);
-    hideConnBanner();
-    return res.status === 204 ? null : res.json();
+    res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
   } catch (err) {
-    showConnBanner();
+    showConnBanner(); // couldn't reach the server at all
     throw err;
   }
+  if (res.status >= 500) showConnBanner();
+  else hideConnBanner();
+  if (!res.ok) {
+    // A 4xx is the server answering "no" (e.g. duplicate phone number) — not a
+    // connection problem, so hand the caller the details instead.
+    const body = await res.json().catch(() => null);
+    throw Object.assign(new Error(body?.message || body?.error || `${path} -> ${res.status}`), { status: res.status, body });
+  }
+  return res.status === 204 ? null : res.json();
 }
 
 function fmtWhen(iso) {
@@ -100,6 +107,7 @@ function applyRoleVisibility(role) {
   $$('.add-contact-control').forEach((el) => {
     el.hidden = role !== 'caller';
   });
+  if (role !== 'caller') setContactsView('list');
   // The agent's job is attending meetings, not chasing sales-pipeline tasks
   // (calls to make, stale proposals — those are Caller metrics and
   // always read 0 for him) — so his Summary is just a month-glance calendar
@@ -136,6 +144,7 @@ $('#global-search').addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
   const q = e.target.value.trim();
   activateTab('contacts');
+  setContactsView('list');
   $('#contact-search').value = q;
   renderContactsTab(q);
 });
@@ -1022,7 +1031,7 @@ async function renderContactsTab(q) {
     const card = document.createElement('div');
     card.className = 'card';
     card.innerHTML = `
-      <strong>${c.name}</strong>
+      <strong>${c.name}</strong>${c.duplicate_phone ? '<span class="dup-tag">Duplicate number</span>' : ''}
       <div class="mnotes">${[c.phone, c.email].filter(Boolean).join(' · ') || '<em>no phone/email on file</em>'}</div>
       <div class="mnotes">${c.notes || ''}</div>
     `;
@@ -1048,13 +1057,18 @@ async function renderContactsTab(q) {
         form.remove();
       });
       form.querySelector('.ie-save').addEventListener('click', async () => {
-        await api(`/api/contacts/${c.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({
-            phone: form.querySelector('.ie-phone').value,
-            email: form.querySelector('.ie-email').value,
-          }),
-        });
+        try {
+          await api(`/api/contacts/${c.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+              phone: form.querySelector('.ie-phone').value,
+              email: form.querySelector('.ie-email').value,
+            }),
+          });
+        } catch (err) {
+          if (err.status === 409) return alert(err.message); // number already belongs to another contact
+          throw err;
+        }
         inlineFormClosed();
         renderContactsTab($('#contact-search').value);
       });
@@ -1081,6 +1095,46 @@ async function renderContactsTab(q) {
 
 $('#contact-search').addEventListener('input', (e) => renderContactsTab(e.target.value));
 
+// ---------- Contacts: "All contacts" and "New contact" are separate views ----------
+function setContactsView(view) {
+  $$('.contacts-subtab').forEach((b) => b.classList.toggle('active', b.dataset.contactsView === view));
+  $('#contacts-view-list').hidden = view !== 'list';
+  $('#contacts-view-new').hidden = view !== 'new';
+}
+$$('.contacts-subtab').forEach((b) => b.addEventListener('click', () => setContactsView(b.dataset.contactsView)));
+
+// Warn about a duplicate phone number as it's typed (the server enforces it too).
+function showPhoneWarning(existing) {
+  const box = $('#cf-phone-warning');
+  $('#cf-submit').disabled = Boolean(existing);
+  if (!existing) {
+    box.hidden = true;
+    return;
+  }
+  box.innerHTML = `<strong>${existing.name}</strong> already has this number (${existing.phone}). <a href="#" id="cf-view-existing">View contact</a>`;
+  box.hidden = false;
+  $('#cf-view-existing').addEventListener('click', (e) => {
+    e.preventDefault();
+    $('#contact-search').value = existing.phone;
+    setContactsView('list');
+    renderContactsTab(existing.phone);
+  });
+}
+let phoneCheckTimer;
+$('#contact-form [name=phone]').addEventListener('input', (e) => {
+  clearTimeout(phoneCheckTimer);
+  const phone = e.target.value.trim();
+  if (!phone) return showPhoneWarning(null);
+  phoneCheckTimer = setTimeout(async () => {
+    try {
+      const { existing } = await api(`/api/contacts/duplicate?phone=${encodeURIComponent(phone)}`);
+      if (e.target.value.trim() === phone) showPhoneWarning(existing); // ignore stale answers
+    } catch (err) {
+      console.error(err);
+    }
+  }, 300);
+});
+
 // The Zoom link / hint / button label only matter once a meeting time is picked.
 $('#contact-form [name=scheduled_at]').addEventListener('input', (e) => {
   $('#cf-submit').textContent = e.target.value ? 'Add contact & schedule meeting' : 'Add contact';
@@ -1093,22 +1147,32 @@ $('#contact-form').addEventListener('submit', async (e) => {
   const when = form.scheduled_at.value;
   const zoomLink = form.zoom_link.value.trim();
   if (when && !ZOOM_STATUS.connected && !zoomLink) return alert('Paste a Zoom link for this meeting (Zoom is not connected to create one automatically).');
-  const res = await api('/api/contacts', {
-    method: 'POST',
-    body: JSON.stringify({
-      name: form.name.value,
-      phone: form.phone.value,
-      email: form.email.value,
-      notes: form.notes.value,
-      created_by: currentUser(),
-      scheduled_at: when ? new Date(when).toISOString() : undefined,
-      zoom_link: zoomLink || undefined,
-    }),
-  });
+  let res;
+  try {
+    res = await api('/api/contacts', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: form.name.value,
+        phone: form.phone.value,
+        email: form.email.value,
+        notes: form.notes.value,
+        created_by: currentUser(),
+        scheduled_at: when ? new Date(when).toISOString() : undefined,
+        zoom_link: zoomLink || undefined,
+      }),
+    });
+  } catch (err) {
+    if (err.status === 409) return showPhoneWarning(err.body.existing); // someone else already has this number
+    throw err;
+  }
   form.reset();
+  showPhoneWarning(null);
   $('#cf-submit').textContent = 'Add contact';
   renderZoomStatus();
   if (res.meeting_error) alert(`Contact added, but the meeting wasn't booked: ${res.meeting_error}\nOpen them from the Pipeline to try scheduling again.`);
+  // Back to the list so the new contact is right there (clear any search that would hide it).
+  $('#contact-search').value = '';
+  setContactsView('list');
   renderContactsTab();
 });
 

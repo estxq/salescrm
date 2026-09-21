@@ -340,6 +340,7 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 .form [hidden] { display: none !important; }
 .form input, .form textarea, .form select { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); }
 .form button { align-self: flex-start; background: var(--accent); color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; }
+.form button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .empty { color: var(--muted); font-size: 13px; padding: 8px 2px; }
 
@@ -491,7 +492,8 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
   margin-bottom: 14px;
 }
 .meetings-subtabs { display: flex; gap: 6px; }
-.meet-subtab {
+.meet-subtab,
+.contacts-subtab {
   border: 1px solid var(--border);
   background: var(--card);
   padding: 6px 14px;
@@ -500,7 +502,11 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
   cursor: pointer;
   color: var(--muted);
 }
-.meet-subtab.active { background: var(--accent); color: white; border-color: var(--accent); }
+.meet-subtab.active,
+.contacts-subtab.active { background: var(--accent); color: white; border-color: var(--accent); }
+.form-warning { background: #fef3c7; border: 1px solid #fcd34d; color: #7c4a03; border-radius: 8px; padding: 8px 12px; font-size: 12px; line-height: 1.4; }
+.form-warning a { color: inherit; font-weight: 600; }
+.dup-tag { display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: #fef3c7; color: #92400e; vertical-align: middle; }
 .meetings-sort {
   font-size: 12px;
   border: 1px solid var(--border);

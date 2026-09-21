@@ -66,8 +66,13 @@ external chat integration; it's a single shared source of truth.
 - **Calendar export**: every scheduled meeting also gets a "Add to Google
   Calendar" link and a downloadable `.ics` file, for anyone who wants it in
   their own calendar app too.
-- **Contacts**: search, add manually, edit, or import leads from a Google
-  Sheet (dedupes by phone).
+- **Contacts**: "All contacts" and "New contact" are separate views. Search
+  ignores capitalisation and stray spaces and understands phone numbers
+  however they're typed. Adding or editing a contact is refused (with a link
+  to the existing one) if the phone number already belongs to someone —
+  `91234567`, `6591234567` and `+65 9123 4567` all count as the same number —
+  and contacts that already share a number are tagged "Duplicate number".
+  Leads can also be imported from a Google Sheet (deduped the same way).
 - **Analytics**: contacts, open deals, won-this-month, win rate, and a
   deals-by-stage bar chart — plain inline SVG, no charting library or
   external CDN.

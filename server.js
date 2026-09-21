@@ -148,9 +148,25 @@ app.post('/api/leads/import', async (req, res) => {
 // ---------- Contacts ----------
 app.get('/api/contacts', async (req, res) => res.json(await listContacts({ q: req.query.q })));
 
+// Lets the form warn about a duplicate number while it's still being typed.
+app.get('/api/contacts/duplicate', async (req, res) => {
+  const existing = await findContactByPhone(req.query.phone, { excludeId: req.query.exclude });
+  res.json({ existing: existing ? { id: existing.id, name: existing.name, phone: existing.phone } : null });
+});
+
+function duplicatePhoneResponse(res, existing) {
+  return res.status(409).json({
+    error: 'duplicate_phone',
+    message: `${existing.name} already has this number (${existing.phone}).`,
+    existing: { id: existing.id, name: existing.name, phone: existing.phone },
+  });
+}
+
 app.post('/api/contacts', async (req, res) => {
   const { name, phone, email, company, notes, created_by, scheduled_at, zoom_link } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
+  const duplicate = await findContactByPhone(phone);
+  if (duplicate) return duplicatePhoneResponse(res, duplicate);
   const contact = await createContact({ name, phone, email, company, notes, created_by });
   let deal = await createDeal({ contact_id: contact.id, title: `${contact.name}`, created_by });
   // Optional: book the meeting in the same step. If Zoom refuses, the contact
@@ -174,6 +190,10 @@ app.get('/api/contacts/:id', async (req, res) => {
 });
 
 app.patch('/api/contacts/:id', async (req, res) => {
+  if (req.body?.phone) {
+    const duplicate = await findContactByPhone(req.body.phone, { excludeId: req.params.id });
+    if (duplicate) return duplicatePhoneResponse(res, duplicate);
+  }
   const contact = await updateContact(req.params.id, req.body || {});
   if (!contact) return res.status(404).json({ error: 'not found' });
   res.json(contact);
