@@ -191,23 +191,30 @@ async function refreshNotifCount() {
   }
 }
 
+// "New" is everything not yet marked done; "Old" is what's been marked done.
+let notifTab = 'new';
+
 async function renderNotifDropdown() {
-  const notifs = await api(`/api/notifications?role=${currentRole}`);
+  $$('.notif-tab').forEach((t) => t.classList.toggle('active', t.dataset.notifTab === notifTab));
+  $('#notif-mark-all').hidden = notifTab !== 'new';
+  const notifs = await api(`/api/notifications?role=${currentRole}&status=${notifTab}`);
   const el = $('#notif-list');
   if (!notifs.length) {
-    el.innerHTML = '<div class="empty">No notifications yet.</div>';
+    el.innerHTML = `<div class="empty">${
+      notifTab === 'new' ? 'No new notifications.' : 'Nothing here yet. Notifications you mark as done show up here.'
+    }</div>`;
     return;
   }
   el.innerHTML = notifs
     .slice(0, 20)
     .map(
       (n) => `
-      <div class="notif-item ${n.read_at ? '' : 'unread'}${n.from_role ? ` from-${n.from_role}` : ''}" data-id="${n.id}" data-deal="${n.deal_id || ''}" data-type="${n.type}">
+      <div class="notif-item ${n.read_at ? '' : 'unread'}${n.done_at ? ' is-old' : ''}${n.from_role ? ` from-${n.from_role}` : ''}" data-id="${n.id}" data-deal="${n.deal_id || ''}" data-type="${n.type}">
         ${n.from_name ? `<span class="n-from">From ${n.from_name}</span>` : ''}
         <div class="n-msg">${n.message}</div>
         <div class="n-row-bottom">
           <div class="n-when">${fmtWhen(n.created_at)}</div>
-          <button class="notif-done-btn" data-id="${n.id}">Mark as done</button>
+          ${n.done_at ? '<span class="n-done-label">Done</span>' : `<button class="notif-done-btn" data-id="${n.id}">Mark as done</button>`}
         </div>
       </div>`
     )
@@ -226,25 +233,31 @@ async function renderNotifDropdown() {
       }
     });
   });
-  // Mark as done permanently removes it — unlike a plain read/click, it
-  // should never resurface, not even as a read item in the list.
+  // Marking done doesn't delete it — it moves to the Old tab as history.
   $$('#notif-list .notif-done-btn').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      await api(`/api/notifications/${btn.dataset.id}`, { method: 'DELETE' });
-      btn.closest('.notif-item').remove();
+      await api(`/api/notifications/${btn.dataset.id}/done`, { method: 'POST' });
       refreshNotifCount();
-      if (!$('#notif-list .notif-item')) {
-        $('#notif-list').innerHTML = '<div class="empty">No notifications yet.</div>';
-      }
+      renderNotifDropdown();
     });
   });
 }
 
+$$('.notif-tab').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    notifTab = tab.dataset.notifTab;
+    renderNotifDropdown();
+  });
+});
+
 $('#notif-bell').addEventListener('click', async () => {
   const dd = $('#notif-dropdown');
   dd.hidden = !dd.hidden;
-  if (!dd.hidden) await renderNotifDropdown();
+  if (!dd.hidden) {
+    notifTab = 'new'; // always open on what needs attention
+    await renderNotifDropdown();
+  }
 });
 
 $('#notif-mark-all').addEventListener('click', async (e) => {

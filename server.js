@@ -40,7 +40,7 @@ import {
   notifyOutcome,
   notifyRemark,
 } from './lib/notify.js';
-import { listNotifications, markRead, markAllRead, unreadCount, deleteNotificationsFor, deleteNotification, createNotification } from './lib/notifications.js';
+import { listNotifications, markRead, markDone, markAllRead, unreadCount, deleteNotificationsFor, deleteNotification, createNotification } from './lib/notifications.js';
 import { buildIcs, googleCalendarLink } from './lib/calendar.js';
 import { checkAndSendReminders } from './lib/reminders.js';
 import * as zoom from './lib/zoom.js';
@@ -624,11 +624,16 @@ app.get('/api/analytics', async (req, res) => {
 
 // ---------- In-app notifications (replaces the old WhatsApp pings) ----------
 app.get('/api/notifications', async (req, res) =>
-  res.json(await listNotifications({ unreadOnly: req.query.unread === 'true', role: req.query.role }))
+  res.json(await listNotifications({ unreadOnly: req.query.unread === 'true', role: req.query.role, status: req.query.status }))
 );
 app.get('/api/notifications/unread-count', async (req, res) => res.json({ count: await unreadCount({ role: req.query.role }) }));
 app.post('/api/notifications/:id/read', async (req, res) => {
   const n = await markRead(req.params.id);
+  if (!n) return res.status(404).json({ error: 'not found' });
+  res.json(n);
+});
+app.post('/api/notifications/:id/done', async (req, res) => {
+  const n = await markDone(req.params.id);
   if (!n) return res.status(404).json({ error: 'not found' });
   res.json(n);
 });

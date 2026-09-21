@@ -37,6 +37,10 @@ external chat integration; it's a single shared source of truth.
 - **In-app notifications**: a bell icon in the top bar with an unread count.
   New bookings, reschedule requests, confirmed reschedules, and upcoming-
   meeting reminders all land here — click one to jump straight to the deal.
+  Each one is addressed to the other role (the caller's actions go to the
+  agent and vice versa) and tagged with who sent it. "Mark as done" moves a
+  notification from the **New** tab to the **Old** tab, where it stays as
+  history.
 - **Scheduling only once they're interested**: a new contact starts as a
   Potential Client; the caller marks them **Interested** (or **Not
   interested**) in the deal modal, and only then does the "Schedule meeting"
