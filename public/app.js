@@ -147,6 +147,10 @@ async function loadZoomStatus() {
 }
 
 function renderZoomStatus() {
+  const wantsManualLink = !ZOOM_STATUS.connected;
+  const scheduling = !!$('#contact-form [name=scheduled_at]').value;
+  $('#cf-zoom-row').hidden = !(wantsManualLink && scheduling);
+  $('#cf-zoom-hint').hidden = !(ZOOM_STATUS.connected && scheduling);
   const el = $('#zoom-status');
   const canManage = currentRole === 'agent'; // it's the agent's own personal Zoom account
   if (!ZOOM_STATUS.configured) {
@@ -1184,10 +1188,19 @@ async function renderContactsTab(q) {
 
 $('#contact-search').addEventListener('input', (e) => renderContactsTab(e.target.value));
 
+// The Zoom link / hint / button label only matter once a meeting time is picked.
+$('#contact-form [name=scheduled_at]').addEventListener('input', (e) => {
+  $('#cf-submit').textContent = e.target.value ? 'Add contact & schedule meeting' : 'Add contact';
+  renderZoomStatus();
+});
+
 $('#contact-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = e.target;
-  await api('/api/contacts', {
+  const when = form.scheduled_at.value;
+  const zoomLink = form.zoom_link.value.trim();
+  if (when && !ZOOM_STATUS.connected && !zoomLink) return alert('Paste a Zoom link for this meeting (Zoom is not connected to create one automatically).');
+  const res = await api('/api/contacts', {
     method: 'POST',
     body: JSON.stringify({
       name: form.name.value,
@@ -1195,9 +1208,14 @@ $('#contact-form').addEventListener('submit', async (e) => {
       email: form.email.value,
       notes: form.notes.value,
       created_by: currentUser(),
+      scheduled_at: when ? new Date(when).toISOString() : undefined,
+      zoom_link: zoomLink || undefined,
     }),
   });
   form.reset();
+  $('#cf-submit').textContent = 'Add contact';
+  renderZoomStatus();
+  if (res.meeting_error) alert(`Contact added, but the meeting wasn't booked: ${res.meeting_error}\nOpen them from the Pipeline to try scheduling again.`);
   renderContactsTab();
 });
 

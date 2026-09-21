@@ -148,7 +148,12 @@
             <label>Phone <input name="phone" placeholder="6591234567" /></label>
             <label>Email <input name="email" type="email" placeholder="client@example.com" /></label>
             <label>Notes <textarea name="notes" rows="2"></textarea></label>
-            <button type="submit">Add contact + create deal</button>
+            <label><span>Schedule a Zoom meeting <span class="hint">(optional)</span></span>
+              <input name="scheduled_at" type="datetime-local" />
+            </label>
+            <label id="cf-zoom-row" hidden>Zoom link <input name="zoom_link" placeholder="https://zoom.us/j/…" /></label>
+            <div id="cf-zoom-hint" class="hint" hidden>A Zoom meeting is created automatically on the agent's connected account.</div>
+            <button type="submit" id="cf-submit">Add contact</button>
           </form>
         </div>
       </section>

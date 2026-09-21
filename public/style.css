@@ -327,6 +327,7 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 
 .form { display: flex; flex-direction: column; gap: 10px; }
 .form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.form [hidden] { display: none !important; }
 .form input, .form textarea, .form select { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); }
 .form button { align-self: flex-start; background: var(--accent); color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; }
 

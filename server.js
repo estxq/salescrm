@@ -83,6 +83,29 @@ async function getZoomOnlyMeetings(linkedZoomMeetingIds) {
   }
 }
 
+// Books a meeting on a deal: creates the real Zoom meeting when Zoom is
+// connected (or uses the manual link), stamps the deal, and tells the other
+// role. Shared by "schedule" on an existing deal and "add contact + schedule".
+// Throws an error carrying an HTTP status so each caller can report it.
+async function bookMeeting(deal, contact, { scheduled_at, zoom_link, changed_by }) {
+  let link = zoom_link;
+  let meetingId = null;
+  if (!link && (await zoom.isConnected())) {
+    try {
+      const meeting = await zoom.createMeeting({ topic: `Call with ${contact?.name || 'client'}`, startTime: scheduled_at });
+      link = meeting.joinUrl;
+      meetingId = meeting.id;
+    } catch (err) {
+      throw Object.assign(new Error(`Zoom meeting creation failed: ${err.message}`), { status: 502 });
+    }
+  }
+  if (!link) throw Object.assign(new Error('zoom_link required (or connect Zoom to auto-generate one)'), { status: 400 });
+
+  const booked = await scheduleMeeting(deal.id, { zoom_link: link, zoom_meeting_id: meetingId, scheduled_at, changed_by });
+  await notifyScheduled(booked, changed_by);
+  return booked;
+}
+
 async function lastCallOutcome(dealId) {
   const lastCall = (await listActivities({ deal_id: dealId })).find((a) => a.type === 'call');
   return lastCall?.meta?.outcome || null;
@@ -134,11 +157,22 @@ app.post('/api/leads/import', async (req, res) => {
 app.get('/api/contacts', async (req, res) => res.json(await listContacts({ q: req.query.q })));
 
 app.post('/api/contacts', async (req, res) => {
-  const { name, phone, email, company, notes, created_by } = req.body;
+  const { name, phone, email, company, notes, created_by, scheduled_at, zoom_link } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   const contact = await createContact({ name, phone, email, company, notes, created_by });
-  const deal = await createDeal({ contact_id: contact.id, title: `${contact.name}`, created_by });
-  res.status(201).json({ contact, deal });
+  let deal = await createDeal({ contact_id: contact.id, title: `${contact.name}`, created_by });
+  // Optional: book the meeting in the same step. If Zoom refuses, the contact
+  // is still saved (nothing to roll back) and the error is handed back so the
+  // caller can retry the booking from the deal.
+  let meeting_error = null;
+  if (scheduled_at) {
+    try {
+      deal = await bookMeeting(deal, contact, { scheduled_at, zoom_link, changed_by: created_by });
+    } catch (err) {
+      meeting_error = err.message;
+    }
+  }
+  res.status(201).json({ contact, deal, meeting_error });
 });
 
 app.get('/api/contacts/:id', async (req, res) => {
@@ -248,24 +282,11 @@ app.post('/api/deals/:id/schedule', async (req, res) => {
   if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at required' });
   const existing = await getDeal(req.params.id);
   if (!existing) return res.status(404).json({ error: 'not found' });
-  const contact = await getContact(existing.contact_id);
-
-  let link = zoom_link;
-  let meetingId = null;
-  if (!link && (await zoom.isConnected())) {
-    try {
-      const meeting = await zoom.createMeeting({ topic: `Call with ${contact?.name || 'client'}`, startTime: scheduled_at });
-      link = meeting.joinUrl;
-      meetingId = meeting.id;
-    } catch (err) {
-      return res.status(502).json({ error: `Zoom meeting creation failed: ${err.message}` });
-    }
+  try {
+    res.json(await bookMeeting(existing, await getContact(existing.contact_id), { scheduled_at, zoom_link, changed_by }));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
   }
-  if (!link) return res.status(400).json({ error: 'zoom_link required (or connect Zoom to auto-generate one)' });
-
-  const deal = await scheduleMeeting(req.params.id, { zoom_link: link, zoom_meeting_id: meetingId, scheduled_at, changed_by });
-  await notifyScheduled(deal, changed_by);
-  res.json(deal);
 });
 
 // Deletes the meeting (cancels the real Zoom meeting first) but keeps the
