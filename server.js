@@ -61,6 +61,7 @@ import { recordOnce, recordEvent, recordZoomMeetingsSeen, forgetMeeting, backfil
 import { buildIcs, googleCalendarLink } from './lib/calendar.js';
 import { checkAndSendReminders } from './lib/reminders.js';
 import * as zoom from './lib/zoom.js';
+import * as gcal from './lib/gcal.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -839,6 +840,23 @@ app.get('/api/summary/activities', async (req, res) => {
 
 // Every meeting in a month, so the Summary calendar (both roles) can show
 // which days have meetings without one request per day.
+// The agent's Google Calendar events for a stretch of time, ready to sit next to
+// the Zoom meetings. Anything that is really one of the Zoom meetings already
+// listed (a Google event with a Zoom link, e.g. from Zoom's Calendar add-on) is
+// dropped so it isn't shown twice. The Caller only gets anonymous "Busy" blocks:
+// when Aaron is tied up, never what with.
+async function googleCalendarItems({ from, to, role, knownZoomIds }) {
+  const events = await gcal.listEvents({ from, to });
+  return events
+    .filter((e) => !e.zoom_ids.some((id) => knownZoomIds.has(id)))
+    .filter((e) => role === 'agent' || !e.transparent)
+    .map(({ zoom_ids, transparent, ...e }) =>
+      role === 'agent' ? e : { ...e, title: 'Busy', external_url: null, busy_only: true }
+    );
+}
+
+const ZOOM_ID_IN_LINK = /zoom\.us\/(?:j|my|w)\/(\d{8,})/i;
+
 app.get('/api/summary/month', async (req, res) => {
   const [y, m] = (req.query.month || '').split('-').map(Number);
   const now = new Date();
@@ -858,9 +876,25 @@ app.get('/api/summary/month', async (req, res) => {
   const withContacts = await Promise.all(allDeals.filter(inMonth).map(async (d) => ({ ...d, contact: await getContact(d.contact_id) })));
 
   const linkedIds = new Set(allDeals.filter((d) => d.zoom_meeting_id).map((d) => d.zoom_meeting_id));
-  const zoomOnly = (await getZoomOnlyMeetings(linkedIds)).filter(inMonth);
+  const zoomAll = await getZoomOnlyMeetings(linkedIds);
+  const zoomOnly = zoomAll.filter(inMonth);
   const history = (await pastMeetingsOf(everyDeal)).filter(inMonth);
-  const combined = withContacts.concat(zoomOnly, history);
+
+  // Padded a day each side; the browser only draws the days of the month it's showing.
+  const knownZoomIds = new Set(
+    [...linkedIds].map(String).concat(
+      zoomAll.map((m) => m.id.replace('zoom-', '')),
+      everyDeal.map((d) => (d.zoom_link || '').match(ZOOM_ID_IN_LINK)?.[1]).filter(Boolean)
+    )
+  );
+  const google = await googleCalendarItems({
+    from: new Date(monthStart.getTime() - 86400000),
+    to: new Date(monthEnd.getTime() + 86400000),
+    role: req.user.role,
+    knownZoomIds,
+  });
+
+  const combined = withContacts.concat(zoomOnly, history, google);
   combined.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
   res.json(combined);
 });
@@ -945,6 +979,39 @@ app.get('/api/zoom/status', async (req, res) => {
 
 app.post('/api/zoom/disconnect', agentOnly, async (req, res) => {
   await zoom.disconnect();
+  res.json({ ok: true });
+});
+
+// ---------- Google Calendar (the agent's own calendar, read-only) ----------
+app.get('/auth/google', agentOnly, (req, res) => {
+  if (!gcal.isConfigured()) return res.status(400).send('Google Calendar is not set up — set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET.');
+  const state = crypto.randomBytes(16).toString('hex');
+  setOAuthState(req, res, state, 'google');
+  res.redirect(gcal.buildAuthorizeUrl(state));
+});
+
+app.get('/auth/google/callback', agentOnly, async (req, res) => {
+  const { code, error, state } = req.query;
+  const expected = takeOAuthState(req, res, 'google');
+  if (error || !code || !state || state !== expected) return res.redirect('/?google=error');
+  try {
+    await gcal.exchangeCode(code);
+    res.redirect('/?google=connected');
+  } catch (err) {
+    console.error('[gcal] oauth callback failed', err);
+    res.redirect('/?google=error');
+  }
+});
+
+// The caller only needs to know whether it's connected — whose calendar it is
+// stays with the agent.
+app.get('/api/google/status', async (req, res) => {
+  const status = await gcal.status();
+  res.json(req.user.role === 'agent' ? status : { ...status, email: null });
+});
+
+app.post('/api/google/disconnect', agentOnly, async (req, res) => {
+  await gcal.disconnect();
   res.json({ ok: true });
 });
 

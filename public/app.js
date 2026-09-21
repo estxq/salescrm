@@ -127,6 +127,7 @@ function applyRoleVisibility(role) {
   const activeBtn = document.querySelector('.page-head .tab-btn.active');
   if (activeBtn && activeBtn.hidden) activateTab('summary');
   renderZoomStatus(); // Zoom connect/disconnect controls are agent-only
+  renderGoogleStatus(); // and so is Google Calendar's
   // Adding contacts is Caller's job (they're the one bringing in fresh
   // leads) — the Agent only needs to look someone up, not create records.
   $$('.add-contact-control').forEach((el) => {
@@ -154,6 +155,41 @@ $('#global-search').addEventListener('keydown', (e) => {
   $('#contact-search').value = q;
   renderContactsTab(q);
 });
+
+// ---------- Google Calendar (the agent's own calendar, read-only) ----------
+// Its events sit next to the Zoom meetings on the Summary calendar. The Agent
+// sees them in full; the Caller only gets "Busy" blocks (the server enforces that).
+let GOOGLE_STATUS = { configured: false, connected: false, email: null, needs_reconnect: false };
+
+async function loadGoogleStatus() {
+  GOOGLE_STATUS = await api('/api/google/status');
+  renderGoogleStatus();
+}
+
+function renderGoogleStatus() {
+  const el = $('#gcal-status');
+  const isAgent = currentRole === 'agent';
+  const g = GOOGLE_STATUS;
+  if (!g.configured) {
+    el.innerHTML = isAgent
+      ? '<span class="zoom-pill zoom-off" title="Set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET to enable">Google Calendar not set up</span>'
+      : '';
+  } else if (g.connected && g.needs_reconnect) {
+    el.innerHTML = isAgent ? '<a href="/auth/google" class="zoom-pill zoom-connect">Reconnect Google Calendar</a>' : '';
+  } else if (g.connected) {
+    el.innerHTML = isAgent
+      ? `<span class="zoom-pill zoom-on" title="Google Calendar is shown alongside your Zoom meetings">Google · ${escapeHtml(g.email || 'connected')}</span><button id="gcal-disconnect" class="zoom-disconnect">Disconnect</button>`
+      : '<span class="zoom-pill zoom-on" title="Shows when the Agent is busy, not what for">Google Calendar (busy times)</span>';
+    $('#gcal-disconnect')?.addEventListener('click', async () => {
+      if (!confirm('Disconnect Google Calendar? Its events will disappear from the calendar until you reconnect.')) return;
+      await api('/api/google/disconnect', { method: 'POST' });
+      await loadGoogleStatus();
+      if ($('#tab-summary').classList.contains('active')) renderSummaryTab();
+    });
+  } else {
+    el.innerHTML = isAgent ? '<a href="/auth/google" class="zoom-pill zoom-connect">Connect Google Calendar</a>' : '';
+  }
+}
 
 // ---------- Zoom (the agent's own personal account) ----------
 let ZOOM_STATUS = { configured: false, connected: false, email: null };
@@ -371,6 +407,11 @@ function sameDay(a, b) {
 // Zoom-only meetings have no deal to open a modal for — Join is the only
 // thing to do with them, so a click just opens the link instead.
 function openCalendarMeeting(meeting) {
+  if (meeting.source === 'google') {
+    // The agent can jump to the event in Google Calendar; the caller only ever sees "Busy".
+    if (meeting.external_url) window.open(meeting.external_url, '_blank', 'noopener');
+    return;
+  }
   if (meeting.source === 'zoom') {
     if (meeting.zoom_link) window.open(meeting.zoom_link, '_blank', 'noopener');
   } else {
@@ -434,11 +475,15 @@ async function renderCalendarCard() {
     const meetings = await api(`/api/summary/month?month=${monthParam}`);
     const byDay = {};
     meetings.forEach((m) => {
-      const d = new Date(m.scheduled_at);
+      // An all-day event is a date, stored as noon UTC; read the date back in UTC so it
+      // lands on the right day whatever timezone this browser is in.
+      const d = m.all_day ? new Date(new Date(m.scheduled_at).getUTCFullYear(), new Date(m.scheduled_at).getUTCMonth(), new Date(m.scheduled_at).getUTCDate()) : new Date(m.scheduled_at);
       if (d.getMonth() !== calendarMonth.getMonth() || d.getFullYear() !== calendarMonth.getFullYear()) return;
       (byDay[d.getDate()] = byDay[d.getDate()] || []).push(m);
     });
-    Object.values(byDay).forEach((list) => list.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at)));
+    Object.values(byDay).forEach((list) =>
+      list.sort((a, b) => (b.all_day ? 1 : 0) - (a.all_day ? 1 : 0) || new Date(a.scheduled_at) - new Date(b.scheduled_at))
+    );
 
     const firstOfMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
     const daysInMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0).getDate();
@@ -457,10 +502,13 @@ async function renderCalendarCard() {
       const eventsHtml = visible
         .map((m, i) => {
           const isZoomOnly = m.source === 'zoom';
-          const name = isZoomOnly ? m.title : m.contact?.name || 'Meeting';
+          const isGoogle = m.source === 'google';
+          const name = isZoomOnly || isGoogle ? m.title : m.contact?.name || 'Meeting';
           const past = new Date(m.scheduled_at).getTime() <= Date.now();
           const tip = m.outcome ? ` title="${escapeHtml(m.outcome.label)}"` : '';
-          return `<div class="cal-event${past ? ' past' : ''}" data-day="${day}" data-idx="${i}"${tip}>${fmtTime(m.scheduled_at)} ${escapeHtml(name)}</div>`;
+          const cls = ['cal-event', past ? 'past' : '', isGoogle ? 'google' : '', m.busy_only ? 'busy' : ''].filter(Boolean).join(' ');
+          const time = m.all_day ? '' : `${fmtTime(m.scheduled_at)} `;
+          return `<div class="${cls}" data-day="${day}" data-idx="${i}"${tip}>${time}${escapeHtml(name)}</div>`;
         })
         .join('');
       cells += `
@@ -473,6 +521,15 @@ async function renderCalendarCard() {
         </div>`;
     }
     grid.innerHTML = cells;
+    const legend = $('#calendar-legend');
+    const showLegend = GOOGLE_STATUS.connected && !GOOGLE_STATUS.needs_reconnect;
+    legend.hidden = !showLegend;
+    if (showLegend) {
+      const agent = currentRole === 'agent';
+      legend.innerHTML = `<span><i class="lg lg-zoom"></i>Zoom &amp; CRM meetings</span><span><i class="lg ${
+        agent ? 'lg-google' : 'lg-busy'
+      }"></i>${agent ? 'Google Calendar' : 'Busy (the Agent has something on)'}</span>`;
+    }
 
     $$('#calendar-grid .cal-event').forEach((chip) => {
       const meeting = (byDay[Number(chip.dataset.day)] || [])[Number(chip.dataset.idx)];
@@ -1577,6 +1634,7 @@ async function startApp(info) {
   renderAccount();
   applyRoleVisibility(info.user.role);
   await loadZoomStatus();
+  await loadGoogleStatus();
   await refreshNotifCount();
   await refresh();
   if (!pollTimer) {
@@ -1584,6 +1642,7 @@ async function startApp(info) {
       if (openInlineForms === 0) refresh(); // don't stomp on an in-progress edit
       refreshNotifCount();
       refreshMe();
+      loadGoogleStatus().catch(() => {});
     }, 20000);
   }
 }
@@ -1591,7 +1650,8 @@ async function startApp(info) {
 (async function init() {
   const params = new URLSearchParams(location.search);
   const zoomResult = params.get('zoom');
-  if (zoomResult) history.replaceState({}, '', location.pathname);
+  const googleResult = params.get('google');
+  if (zoomResult || googleResult) history.replaceState({}, '', location.pathname);
 
   let res;
   try {
@@ -1607,4 +1667,6 @@ async function startApp(info) {
   await startApp(info);
   if (zoomResult === 'connected') alert('Zoom connected.');
   else if (zoomResult === 'error') alert('Zoom connection failed — check the server logs.');
+  if (googleResult === 'connected') alert('Google Calendar connected.');
+  else if (googleResult === 'error') alert('Google Calendar connection failed — check the server logs.');
 })();

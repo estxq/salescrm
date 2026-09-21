@@ -92,9 +92,10 @@ body {
   border-bottom: 1px solid var(--border);
   gap: 12px;
 }
+.topbar-search { flex: 1 1 auto; min-width: 0; }
 .topbar-search input {
-  width: 320px;
-  max-width: 40vw;
+  width: 100%;
+  max-width: 320px;
   font: inherit;
   padding: 7px 12px;
   border-radius: 8px;
@@ -213,6 +214,11 @@ body {
   border-radius: 999px;
   text-decoration: none;
   display: inline-block;
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
 }
 .zoom-pill.zoom-off { background: #f1f2f4; color: var(--muted); }
 .zoom-pill.zoom-on { background: #dbeafe; color: var(--accent); font-weight: 600; }
@@ -872,3 +878,21 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 .cal-event.past { background: #eef0f3; color: var(--muted); }
 .cal-event.past:hover { background: var(--muted); color: white; }
 .meetings-row.is-past .mt-name, .meetings-row.is-past .mt-date { opacity: 0.7; }
+
+/* ---------- Google Calendar events on the Summary calendar ---------- */
+.cal-event.google { background: #dcfce7; color: #166534; }
+.cal-event.google:hover { background: #166534; color: white; }
+.cal-event.google.busy { background: repeating-linear-gradient(135deg, #f3f4f6, #f3f4f6 6px, #e5e7eb 6px, #e5e7eb 12px); color: var(--muted); cursor: default; }
+.cal-event.google.busy:hover { background: repeating-linear-gradient(135deg, #f3f4f6, #f3f4f6 6px, #e5e7eb 6px, #e5e7eb 12px); color: var(--muted); }
+.cal-event.google.past { opacity: 0.6; }
+.cal-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: var(--muted); margin: 0 0 10px; }
+.cal-legend[hidden] { display: none; }
+.cal-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.cal-legend .lg { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.cal-legend .lg-zoom { background: var(--accent-weak); border: 1px solid #b6c9f5; }
+.cal-legend .lg-google { background: #dcfce7; border: 1px solid #86efac; }
+
+/* Zoom + Google connection controls sit side by side and never wrap */
+.topbar-right { flex-shrink: 0; }
+.zoom-status { display: flex; align-items: center; white-space: nowrap; }
+.cal-legend .lg-busy { background: repeating-linear-gradient(135deg, #f3f4f6, #f3f4f6 3px, #d1d5db 3px, #d1d5db 6px); border: 1px solid #d1d5db; }

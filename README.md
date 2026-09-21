@@ -32,6 +32,19 @@ external chat integration; it's a single shared source of truth.
   reason. A request on a CRM meeting opens the deal to pick the new time; a
   request on a Zoom-only meeting has a "Mark as done" (it also clears itself
   once the Caller moves or deletes that Zoom meeting in Meetings).
+- **Google Calendar on the Summary calendar** (optional): the agent connects
+  their own Google account ("Connect Google Calendar", top bar) and their
+  events appear next to the Zoom meetings, in green. It's read-only — the app
+  can't create, change or delete anything in Google. **The agent** sees titles
+  and can click through to the event; **the caller** only gets anonymous "Busy"
+  blocks (titles, links and details never leave the server, and "free" events
+  are left out), so they can see when the agent is tied up without seeing why.
+  Only the primary calendar is read; cancelled and declined events are skipped;
+  a Google event that is really one of the Zoom meetings (e.g. made by Zoom's
+  Calendar add-on) isn't shown twice. Needs `GOOGLE_CLIENT_ID` /
+  `GOOGLE_CLIENT_SECRET` — setup steps in `.env.example`. If Google stops
+  renewing the login the top bar shows "Reconnect Google Calendar" and the rest
+  of the calendar carries on.
 - **Meetings that have happened stay on the calendar** (greyed out, and in
   Meetings → Past) instead of disappearing. That covers a meeting whose deal
   moved on after an outcome was logged, an earlier meeting replaced when another
