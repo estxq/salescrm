@@ -148,6 +148,15 @@ body {
   border-radius: 8px; border: 1px solid var(--border); background: var(--card); cursor: pointer; text-align: center;
 }
 .am-logout:hover { background: var(--bg); }
+.am-delete-open { margin-top: 6px; border: none; background: none; font: inherit; font-size: 12px; color: var(--muted); cursor: pointer; text-decoration: underline; padding: 4px; }
+.am-delete-open:hover { color: #b91c1c; }
+.am-delete-form { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
+.am-delete-form[hidden] { display: none; }
+.am-delete-form input { font: inherit; font-size: 13px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); }
+.am-delete-error { font-size: 12px; color: #b91c1c; }
+.am-delete-actions { display: flex; gap: 8px; }
+.am-delete-actions button { font: inherit; font-size: 12px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); cursor: pointer; }
+.am-delete-actions .am-delete-confirm { background: #b91c1c; border-color: #b91c1c; color: white; }
 
 .invite-banner {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;

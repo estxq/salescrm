@@ -186,6 +186,18 @@ deployment that already has data, sign up right after deploying so it goes to
 you. The old un-prefixed copies are left in place as a backup (the Zoom token
 is moved, not copied).
 
+**Zoom is per team.** A new team starts with no Zoom connection; its Agent
+clicks "Connect Zoom" and signs in with their own account, and every meeting
+that team books (and every Zoom-only interview it shows) comes from that
+account. One thing outside this app: a Zoom OAuth app in development mode can
+only be authorised by the Zoom account that created it — for other teams'
+agents to connect their own Zoom, the app has to be published on the Zoom
+Marketplace.
+
+**Deleting your account** (account menu → Delete my account, confirmed with
+your password) removes only your login. The team's contacts, meetings, Zoom
+connection and invite code stay, so someone holding the code can take the
+free seat — that's also how a teammate is replaced.
+
 Not included: email verification and password reset (there's no email
-service), so keep your password safe — and as there's no way to remove a
-member, a team's two seats are permanent for now.
+service), so keep your password safe.

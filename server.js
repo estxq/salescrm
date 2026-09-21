@@ -13,6 +13,7 @@ import {
   createTeamAndAccount,
   joinTeamAndAccount,
   login,
+  deleteAccount,
   getAccount,
   getTeam,
   sessionInfo,
@@ -183,6 +184,12 @@ app.use(async (req, res, next) => {
     }
   }
   withTeam(account.team_id, next);
+});
+
+app.delete('/api/auth/account', async (req, res) => {
+  await deleteAccount(req.user, req.body?.password);
+  endSession(req, res);
+  res.json({ ok: true });
 });
 
 // Server-side role check for the routes each role's page is built around, so

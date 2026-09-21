@@ -1345,6 +1345,31 @@ $('#ib-dismiss').addEventListener('click', () => {
   sessionStorage.setItem('inviteBannerDismissed', '1');
   $('#invite-banner').hidden = true;
 });
+// Deleting your own account: asks for the password again, removes only the
+// login (the team's data stays), then reloads to the login screen.
+$('#am-delete-open').addEventListener('click', () => {
+  $('#am-delete-open').hidden = true;
+  $('#am-delete-form').hidden = false;
+  $('#am-delete-password').focus();
+});
+$('#am-delete-cancel').addEventListener('click', () => {
+  $('#am-delete-form').hidden = true;
+  $('#am-delete-open').hidden = false;
+  $('#am-delete-password').value = '';
+  $('#am-delete-error').hidden = true;
+});
+$('#am-delete-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errorEl = $('#am-delete-error');
+  errorEl.hidden = true;
+  try {
+    await api('/api/auth/account', { method: 'DELETE', body: JSON.stringify({ password: $('#am-delete-password').value }) });
+    location.reload();
+  } catch (err) {
+    errorEl.textContent = err.status === 403 ? err.message : 'Something went wrong — try again.';
+    errorEl.hidden = false;
+  }
+});
 $('#logout-btn').addEventListener('click', async () => {
   try {
     await api('/api/auth/logout', { method: 'POST' });

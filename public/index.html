@@ -75,10 +75,20 @@
             <div class="am-sub" id="am-email"></div>
             <div class="am-sub">Team: <strong id="am-team"></strong></div>
             <div id="am-invite" class="am-invite" hidden>
-              <div class="am-sub">Invite your <span id="am-invite-role"></span> — they join with this code:</div>
+              <div class="am-sub">Invite your <span id="am-invite-role"></span>. They join with this code:</div>
               <div class="am-code-row"><code id="am-invite-code"></code><button type="button" id="am-copy">Copy</button></div>
             </div>
             <button type="button" id="logout-btn" class="am-logout">Log out</button>
+            <button type="button" id="am-delete-open" class="am-delete-open">Delete my account</button>
+            <form id="am-delete-form" class="am-delete-form" hidden>
+              <div class="am-sub">This removes your login only. Your team's contacts, meetings and Zoom connection stay, and someone with the invite code can take your seat.</div>
+              <input id="am-delete-password" type="password" placeholder="Confirm with your password" autocomplete="current-password" />
+              <div id="am-delete-error" class="am-delete-error" hidden></div>
+              <div class="am-delete-actions">
+                <button type="submit" class="am-delete-confirm">Delete account</button>
+                <button type="button" id="am-delete-cancel">Cancel</button>
+              </div>
+            </form>
           </div>
         </div>
       </div>
