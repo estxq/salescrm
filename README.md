@@ -2,8 +2,7 @@
 
 A small in-house CRM for a caller / agent team, inspired by the parts of
 HubSpot Sales Hub that were actually going to get used: a contact list, a
-deal pipeline, call logging, email templates with open tracking, real Zoom
-meetings, and a reporting dashboard. Everything — scheduling, remarks,
+deal pipeline, real Zoom meetings, and a reporting dashboard. Everything — scheduling, remarks,
 reschedule requests, notifications — happens on this dashboard. There is no
 external chat integration; it's a single shared source of truth.
 
@@ -20,7 +19,7 @@ external chat integration; it's a single shared source of truth.
   so the underlying API is open to whichever role is selected.
 - **Summary dashboard** (the landing page): a HubSpot-style layout — dark
   sidebar, "Sales | \<you\>" header — with three columns: **Your tasks**
-  (high priority count, calls to make, follow-up emails due, stale
+  (high priority count, calls to make, stale
   proposals, meetings today, reschedule requests — each clickable), **Your
   outreach activities** (a live feed across every deal), and **Schedule** (a
   day-by-day view with prev/next navigation, so today's meetings are one
@@ -38,12 +37,13 @@ external chat integration; it's a single shared source of truth.
 - **In-app notifications**: a bell icon in the top bar with an unread count.
   New bookings, reschedule requests, confirmed reschedules, and upcoming-
   meeting reminders all land here — click one to jump straight to the deal.
-- **Call progress**: every deal tracks the outcome of its most recent call
-  (Booked / Connected / Voicemail / No answer), set via "Call progress" in
-  the deal modal, shown as a "📞" badge on the pipeline card and inside the
-  deal.
+- **Scheduling only once they're interested**: a new contact starts as a
+  Potential Client; the caller marks them **Interested** (or **Not
+  interested**) in the deal modal, and only then does the "Schedule meeting"
+  section appear. (Adding a contact with a meeting time in the New contact
+  form books it straight away.)
 - **Remarks**: a plain "Remarks" box on every deal for anything that doesn't
-  fit a call log or follow-up — logged straight to the activity timeline
+  fit anywhere else — logged straight to the activity timeline
   with who wrote it and when.
 - **Reschedule requests, not silent edits**: the agent can't rebook the
   caller's calendar, so "Agent: ask to reschedule" doesn't change the time
@@ -51,8 +51,8 @@ external chat integration; it's a single shared source of truth.
   deal card gets a "⚠ reschedule requested" badge and the Summary tasks
   column counts it, until the caller picks the actual new time via "Caller: confirm
   new time" — which is what notifies the agent of the change.
-- **Meeting follow-up**: once a meeting is booked, the deal modal shows a
-  "Meeting follow-up" dropdown — **Ready to proceed** (→ Proposal), **Needs
+- **Meeting follow-up** (agent only): once a meeting is booked, the agent's
+  deal modal shows a "Meeting follow-up" dropdown — **Ready to proceed** (→ Proposal), **Needs
   another follow-up** (→ back to Contacted), or **Not interested** (→ Lost)
   — plus an optional note.
 - **Proactive reminders**: a background check runs every 5 minutes (and

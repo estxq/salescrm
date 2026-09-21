@@ -25,7 +25,6 @@ import {
   requestReschedule,
   logFollowUp,
   updateDealValue,
-  logCall,
   addNote,
   deleteDeal,
 } from './lib/deals.js';
@@ -104,11 +103,6 @@ async function bookMeeting(deal, contact, { scheduled_at, zoom_link, changed_by 
   const booked = await scheduleMeeting(deal.id, { zoom_link: link, zoom_meeting_id: meetingId, scheduled_at, changed_by });
   await notifyScheduled(booked, changed_by);
   return booked;
-}
-
-async function lastCallOutcome(dealId) {
-  const lastCall = (await listActivities({ deal_id: dealId })).find((a) => a.type === 'call');
-  return lastCall?.meta?.outcome || null;
 }
 
 // ---------- Users (lightweight identity, no auth) ----------
@@ -226,7 +220,6 @@ app.get('/api/deals', async (req, res) => {
     deals.map(async (d) => ({
       ...d,
       contact: await getContact(d.contact_id),
-      last_call_outcome: await lastCallOutcome(d.id),
     }))
   );
   res.json(withExtras);
@@ -265,7 +258,6 @@ app.get('/api/deals/:id', async (req, res) => {
     ...deal,
     contact: await getContact(deal.contact_id),
     activities: await listActivities({ deal_id: deal.id }),
-    last_call_outcome: await lastCallOutcome(deal.id),
   });
 });
 
@@ -434,13 +426,6 @@ app.post('/api/deals/:id/value', async (req, res) => {
   res.json(deal);
 });
 
-app.post('/api/deals/:id/call', async (req, res) => {
-  const { outcome, notes, made_by } = req.body;
-  if (!outcome) return res.status(400).json({ error: 'outcome required' });
-  const deal = await logCall(req.params.id, { outcome, notes, made_by });
-  if (!deal) return res.status(404).json({ error: 'not found' });
-  res.json(deal);
-});
 
 app.post('/api/deals/:id/note', async (req, res) => {
   const deal = await addNote(req.params.id, req.body || {});
@@ -516,12 +501,6 @@ app.get('/api/summary/tasks', async (req, res) => {
   const today = new Date().toDateString();
 
   const callsDue = deals.filter((d) => d.stage === 'new');
-  const emailsDueChecks = await Promise.all(
-    deals
-      .filter((d) => ['contacted', 'meeting_booked'].includes(d.stage))
-      .map(async (d) => ({ d, hasEmail: (await listActivities({ deal_id: d.id })).some((a) => a.type === 'email') }))
-  );
-  const emailsDue = emailsDueChecks.filter((c) => !c.hasEmail).map((c) => c.d);
   const staleProposals = deals.filter((d) => {
     if (d.stage !== 'proposal') return false;
     const days = (Date.now() - new Date(d.updated_at).getTime()) / 86400000;
@@ -532,9 +511,8 @@ app.get('/api/summary/tasks', async (req, res) => {
 
   res.json({
     highPriority: meetingsToday.length + staleProposals.length + rescheduleRequests.length,
-    allTasks: callsDue.length + emailsDue.length + staleProposals.length + meetingsToday.length + rescheduleRequests.length,
+    allTasks: callsDue.length + staleProposals.length + meetingsToday.length + rescheduleRequests.length,
     calls: callsDue.length,
-    emails: emailsDue.length,
     staleProposals: staleProposals.length,
     meetingsToday: meetingsToday.length,
     rescheduleRequests: rescheduleRequests.length,
@@ -618,7 +596,6 @@ app.get('/track/open/:token.png', async (req, res) => {
 // ---------- Analytics ----------
 app.get('/api/analytics', async (req, res) => {
   const deals = await listDeals();
-  const activities = await listActivities();
 
   const dealsByStage = STAGES.map((stage) => ({
     stage,
@@ -636,24 +613,12 @@ app.get('/api/analytics', async (req, res) => {
     return u.getMonth() === now.getMonth() && u.getFullYear() === now.getFullYear();
   });
 
-  const days = [];
-  for (let i = 13; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    days.push(d.toISOString().slice(0, 10));
-  }
-  const callsPerDay = days.map((day) => ({
-    day,
-    count: activities.filter((a) => a.type === 'call' && a.at.slice(0, 10) === day).length,
-  }));
-
   res.json({
     totalContacts: (await listContacts()).length,
     openDeals: deals.filter((d) => !['won', 'lost'].includes(d.stage)).length,
     wonThisMonth: wonThisMonth.length,
     winRate,
     dealsByStage,
-    callsPerDay,
   });
 });
 

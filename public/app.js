@@ -293,7 +293,6 @@ async function renderTasksCard() {
       </div>
       <div class="task-links">
         <button class="task-link" data-jump="pipeline"><span>Calls to make</span><span class="count">${t.calls}</span></button>
-        <button class="task-link" data-jump="pipeline"><span>Follow-up emails due</span><span class="count">${t.emails}</span></button>
         <button class="task-link" data-jump="pipeline"><span>Stale proposals (3+ days)</span><span class="count">${t.staleProposals}</span></button>
         <button class="task-link" data-jump="pipeline"><span>Meetings today</span><span class="count">${t.meetingsToday}</span></button>
         <button class="task-link" data-jump="pipeline"><span>Reschedule requests</span><span class="count">${t.rescheduleRequests}</span></button>
@@ -791,12 +790,6 @@ async function renderPipelineTab() {
   });
 }
 
-const CALL_OUTCOME_LABELS = {
-  booked: 'Meeting scheduled',
-  not_interested: 'Not interested',
-  no_pickup: 'No pickup',
-};
-
 function dealCard(deal) {
   const card = document.createElement('div');
   card.className = 'deal-card';
@@ -805,7 +798,6 @@ function dealCard(deal) {
   card.innerHTML = `
     <div class="dname">${deal.contact?.name || 'unknown'}</div>
     <div class="dwhen">${deal.stage === 'meeting_booked' ? fmtWhen(deal.scheduled_at) : ''}</div>
-    ${deal.last_call_outcome ? `<div class="badge-call">📞 ${CALL_OUTCOME_LABELS[deal.last_call_outcome] || deal.last_call_outcome}</div>` : ''}
     ${deal.reschedule_requested ? '<div class="badge-warning">⚠ reschedule requested</div>' : ''}
   `;
   card.addEventListener('dragstart', (e) => {
@@ -825,7 +817,6 @@ async function ensureFollowupOutcomes() {
 
 async function openDealModal(id) {
   const deal = await api(`/api/deals/${id}`);
-  const templates = await api('/api/templates');
   await ensureFollowupOutcomes();
   await loadZoomStatus();
   const contact = deal.contact || {};
@@ -845,8 +836,6 @@ async function openDealModal(id) {
         .join('')
     : '<div class="empty">No activity yet.</div>';
 
-  const templateOptions = templates.map((t) => `<option value="${t.id}">${t.name}</option>`).join('');
-
   const calendarLinks = deal.scheduled_at
     ? await api(`/api/deals/${id}/calendar-link`).catch(() => null)
     : null;
@@ -860,7 +849,6 @@ async function openDealModal(id) {
   const body = `
     <h2>${contact.name || ''}</h2>
     <div class="mnotes">${contact.phone || ''} ${contact.email ? '· ' + contact.email : ''}</div>
-    ${deal.last_call_outcome ? `<div class="badge-call" style="margin-top:6px">📞 Last call: ${CALL_OUTCOME_LABELS[deal.last_call_outcome] || deal.last_call_outcome}</div>` : ''}
     ${deal.zoom_link ? `<div class="mnotes" style="margin-top:6px">Zoom link: <a href="${deal.zoom_link}" target="_blank" rel="noopener">${deal.zoom_link}</a></div>` : ''}
     ${
       contact.phone && deal.scheduled_at
@@ -869,21 +857,6 @@ async function openDealModal(id) {
             confirmMeetingMessage(contact.name, deal.scheduled_at, deal.zoom_link)
           )}" target="_blank" rel="noopener" class="whatsapp-btn" style="margin-top:8px">💬 Text to confirm</a>`
         : ''
-    }
-
-    ${
-      isAgent
-        ? ''
-        : `<div class="section-head"><h2>Call progress</h2></div>
-    <div class="mactions">
-      <select id="m-call-outcome">
-        <option value="no_pickup">Called (no pickup)</option>
-        <option value="not_interested">Called, not interested</option>
-        <option value="booked">Called, meeting scheduled</option>
-      </select>
-      <input id="m-call-notes" placeholder="Notes" />
-      <button id="m-log-call" class="primary">Log call</button>
-    </div>`
     }
 
     ${
@@ -917,6 +890,10 @@ async function openDealModal(id) {
 
     ${
       isAgent
+        ? ''
+        : deal.stage === 'new'
+        ? '<div class="hint" style="margin-top:14px">Mark them Interested to schedule a meeting.</div>'
+        : !['contacted', 'proposal', 'meeting_booked'].includes(deal.stage)
         ? ''
         : `<div class="section-head"><h2>${deal.stage === 'meeting_booked' ? 'Reschedule' : 'Schedule meeting'}</h2></div>
     <div class="mactions">
@@ -952,18 +929,7 @@ async function openDealModal(id) {
     }
 
     ${
-      isAgent
-        ? ''
-        : `<div class="section-head"><h2>Send email</h2></div>
-    <div class="mactions">
-      <select id="m-template">${templateOptions || '<option value="">No templates yet</option>'}</select>
-      <button id="m-send-email" class="primary" ${templates.length ? '' : 'disabled'}>Send</button>
-    </div>
-    ${contact.email ? '' : '<div class="hint">Contact has no email address — add one in Contacts to send.</div>'}`
-    }
-
-    ${
-      deal.stage === 'meeting_booked'
+      isAgent && deal.stage === 'meeting_booked'
         ? `<div class="section-head"><h2>Meeting follow-up</h2></div>
     <div class="mactions">
       <select id="m-followup-outcome">${FOLLOWUP_OUTCOMES_CACHE.map((o) => `<option value="${o.key}">${o.label}</option>`).join('')}</select>
@@ -993,16 +959,6 @@ async function openDealModal(id) {
 
   $('#modal-body').innerHTML = body;
   $('#modal-overlay').hidden = false;
-
-  if ($('#m-log-call')) {
-    $('#m-log-call').addEventListener('click', async () => {
-      await api(`/api/deals/${id}/call`, {
-        method: 'POST',
-        body: JSON.stringify({ outcome: $('#m-call-outcome').value, notes: $('#m-call-notes').value, made_by: currentUser() }),
-      });
-      openDealModal(id); refresh();
-    });
-  }
 
   if (deal.stage === 'new' && $('#m-mark-interested')) {
     $('#m-mark-interested').addEventListener('click', async () => {
@@ -1071,28 +1027,19 @@ async function openDealModal(id) {
       });
     }
 
-    $('#m-log-followup').addEventListener('click', async () => {
-      await api(`/api/deals/${id}/followup`, {
-        method: 'POST',
-        body: JSON.stringify({
-          outcome: $('#m-followup-outcome').value,
-          note: $('#m-followup-note').value,
-          changed_by: currentUser(),
-        }),
+    if ($('#m-log-followup')) {
+      $('#m-log-followup').addEventListener('click', async () => {
+        await api(`/api/deals/${id}/followup`, {
+          method: 'POST',
+          body: JSON.stringify({
+            outcome: $('#m-followup-outcome').value,
+            note: $('#m-followup-note').value,
+            changed_by: currentUser(),
+          }),
+        });
+        closeModal(); refresh();
       });
-      closeModal(); refresh();
-    });
-  }
-
-  if ($('#m-send-email')) {
-    $('#m-send-email').addEventListener('click', async () => {
-      if (!contact.email) return alert('Contact has no email address.');
-      await api(`/api/deals/${id}/email`, {
-        method: 'POST',
-        body: JSON.stringify({ template_id: $('#m-template').value, made_by: currentUser() }),
-      });
-      openDealModal(id);
-    });
+    }
   }
 
   if ($('#m-won')) {
@@ -1297,28 +1244,6 @@ function barChartSvg(items, { width = 480, height = 220, color = '#2563eb' } = {
   return `<svg viewBox="0 0 ${width} ${height}" width="100%" style="max-width:100%">${bars}</svg>`;
 }
 
-function lineChartSvg(items, { width = 480, height = 220, color = '#16a34a' } = {}) {
-  const max = Math.max(1, ...items.map((i) => i.value));
-  const chartH = height - 36;
-  const stepX = width / Math.max(1, items.length - 1);
-  const points = items.map((item, i) => {
-    const x = i * stepX;
-    const y = chartH - (item.value / max) * (chartH - 10);
-    return [x, y];
-  });
-  const path = points.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x},${y}`).join(' ');
-  const dots = points
-    .map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="3" fill="${color}"><title>${items[i].label}: ${items[i].value}</title></circle>`)
-    .join('');
-  const labels = items
-    .map((item, i) => (i % 2 === 0 ? `<text x="${i * stepX}" y="${chartH + 16}" font-size="9" text-anchor="middle" fill="#6b7280">${item.label}</text>` : ''))
-    .join('');
-  return `<svg viewBox="0 0 ${width} ${height}" width="100%" style="max-width:100%">
-    <path d="${path}" fill="none" stroke="${color}" stroke-width="2"></path>
-    ${dots}${labels}
-  </svg>`;
-}
-
 // Short forms of the stage labels for the chart's x-axis, where full
 // phrases like "Scheduled a Meeting" would crowd narrow bars.
 const STAGE_CHART_LABELS = {
@@ -1343,7 +1268,6 @@ async function renderAnalyticsTab() {
   $('#stage-chart').innerHTML = barChartSvg(
     a.dealsByStage.map((s) => ({ label: STAGE_CHART_LABELS[s.stage] || s.label, value: s.count }))
   );
-  $('#calls-chart').innerHTML = lineChartSvg(a.callsPerDay.map((d) => ({ label: d.day.slice(5), value: d.count })));
 }
 
 // =====================================================================
