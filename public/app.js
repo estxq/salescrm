@@ -112,6 +112,7 @@ function applyRoleVisibility(role) {
   if (scheduleCard) scheduleCard.hidden = isAgentSummary;
   if (calendarCard) calendarCard.hidden = !isAgentSummary;
   if ($('#tab-summary').classList.contains('active')) renderSummaryTab();
+  refreshNotifCount(); // the bell only counts what's addressed to this role
 }
 
 async function loadUsers() {
@@ -173,7 +174,7 @@ function renderZoomStatus() {
 // ---------- Notifications (replaces the old WhatsApp pings) ----------
 async function refreshNotifCount() {
   try {
-    const { count } = await api('/api/notifications/unread-count');
+    const { count } = await api(`/api/notifications/unread-count?role=${currentRole}`);
     const badge = $('#notif-count');
     if (count > 0) {
       badge.textContent = count > 9 ? '9+' : count;
@@ -187,7 +188,7 @@ async function refreshNotifCount() {
 }
 
 async function renderNotifDropdown() {
-  const notifs = await api('/api/notifications');
+  const notifs = await api(`/api/notifications?role=${currentRole}`);
   const el = $('#notif-list');
   if (!notifs.length) {
     el.innerHTML = '<div class="empty">No notifications yet.</div>';
@@ -197,7 +198,8 @@ async function renderNotifDropdown() {
     .slice(0, 20)
     .map(
       (n) => `
-      <div class="notif-item ${n.read_at ? '' : 'unread'}" data-id="${n.id}" data-deal="${n.deal_id || ''}">
+      <div class="notif-item ${n.read_at ? '' : 'unread'}${n.from_role ? ` from-${n.from_role}` : ''}" data-id="${n.id}" data-deal="${n.deal_id || ''}">
+        ${n.from_name ? `<span class="n-from">From ${n.from_name}</span>` : ''}
         <div class="n-msg">${n.message}</div>
         <div class="n-row-bottom">
           <div class="n-when">${fmtWhen(n.created_at)}</div>
@@ -241,7 +243,7 @@ $('#notif-bell').addEventListener('click', async () => {
 
 $('#notif-mark-all').addEventListener('click', async (e) => {
   e.stopPropagation();
-  await api('/api/notifications/read-all', { method: 'POST' });
+  await api('/api/notifications/read-all', { method: 'POST', body: JSON.stringify({ role: currentRole }) });
   renderNotifDropdown();
   refreshNotifCount();
 });

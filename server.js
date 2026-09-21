@@ -244,7 +244,7 @@ app.post('/api/deals/:id/schedule', async (req, res) => {
   if (!link) return res.status(400).json({ error: 'zoom_link required (or connect Zoom to auto-generate one)' });
 
   const deal = await scheduleMeeting(req.params.id, { zoom_link: link, zoom_meeting_id: meetingId, scheduled_at, changed_by });
-  await notifyScheduled(deal);
+  await notifyScheduled(deal, changed_by);
   res.json(deal);
 });
 
@@ -304,6 +304,7 @@ app.post('/api/zoom-meetings/:meetingId/request-reschedule', async (req, res) =>
     message: `${requested_by || 'Someone'} asked to reschedule "${
       topic || 'a Zoom meeting'
     }" (${when}): "${remark}". Caller please move it directly in Zoom.`,
+    from_name: requested_by,
   });
   res.json({ ok: true });
 });
@@ -326,6 +327,7 @@ app.post('/api/zoom-meetings/:meetingId/outcome', async (req, res) => {
     message: `${made_by || 'Someone'} logged "${topic || 'a Zoom meeting'}" (${when}) as: ${config.label}${
       note ? ` — ${note}` : ''
     }.`,
+    from_name: made_by,
   });
   res.json({ ok: true });
 });
@@ -581,8 +583,10 @@ app.get('/api/analytics', async (req, res) => {
 });
 
 // ---------- In-app notifications (replaces the old WhatsApp pings) ----------
-app.get('/api/notifications', async (req, res) => res.json(await listNotifications({ unreadOnly: req.query.unread === 'true' })));
-app.get('/api/notifications/unread-count', async (req, res) => res.json({ count: await unreadCount() }));
+app.get('/api/notifications', async (req, res) =>
+  res.json(await listNotifications({ unreadOnly: req.query.unread === 'true', role: req.query.role }))
+);
+app.get('/api/notifications/unread-count', async (req, res) => res.json({ count: await unreadCount({ role: req.query.role }) }));
 app.post('/api/notifications/:id/read', async (req, res) => {
   const n = await markRead(req.params.id);
   if (!n) return res.status(404).json({ error: 'not found' });
@@ -594,7 +598,7 @@ app.delete('/api/notifications/:id', async (req, res) => {
   res.json({ ok: true });
 });
 app.post('/api/notifications/read-all', async (req, res) => {
-  await markAllRead();
+  await markAllRead({ role: req.body?.role });
   res.json({ ok: true });
 });
 

@@ -178,6 +178,14 @@ body {
 .notif-item { padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 12px; }
 .notif-item:hover { background: var(--bg); }
 .notif-item.unread { background: var(--accent-weak); }
+.notif-item { border-left: 3px solid transparent; }
+.notif-item.from-agent { border-left-color: #7c3aed; }
+.notif-item.from-caller { border-left-color: #0d9488; }
+.notif-item.unread.from-agent { background: #f3edfe; }
+.notif-item.unread.from-caller { background: #e3f6f3; }
+.notif-item .n-from { display: inline-block; margin-bottom: 4px; font-size: 10px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: #eceef2; color: var(--muted); }
+.from-agent .n-from { background: #e9defc; color: #5b21b6; }
+.from-caller .n-from { background: #ccf0ea; color: #0f766e; }
 .notif-item .n-msg { margin-bottom: 3px; }
 .notif-item .n-when { color: var(--muted); font-size: 11px; }
 .notif-item .n-row-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
