@@ -158,7 +158,7 @@ function renderZoomStatus() {
     return;
   }
   if (ZOOM_STATUS.connected) {
-    el.innerHTML = `<span class="zoom-pill zoom-on">🎥 ${ZOOM_STATUS.email || 'Zoom connected'}</span>${
+    el.innerHTML = `<span class="zoom-pill zoom-on">${ZOOM_STATUS.email || 'Zoom connected'}</span>${
       canManage ? '<button id="zoom-disconnect" class="zoom-disconnect">Disconnect</button>' : ''
     }`;
     if (canManage) {
@@ -302,15 +302,6 @@ async function renderTasksCard() {
   });
 }
 
-const ACTIVITY_ICONS = {
-  call: '📞',
-  email: '✉️',
-  meeting: '📅',
-  reschedule_request: '🔄',
-  stage_change: '➡️',
-  note: '📝',
-};
-
 async function renderScheduleCard() {
   $('#sched-date').textContent = scheduleDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   const el = $('#schedule-body');
@@ -328,7 +319,7 @@ async function renderScheduleCard() {
         return `
         <div class="schedule-slot" data-id="${d.id}">
           <span class="s-time">${fmtTime(d.scheduled_at)}</span>
-          <span class="s-name">${name}${d.reschedule_requested ? ' <span class="badge-warning">⚠ reschedule</span>' : ''}</span>
+          <span class="s-name">${name}${d.reschedule_requested ? ' <span class="badge-warning">Reschedule requested</span>' : ''}</span>
           <span class="s-actions">
             ${
               isZoomOnly
@@ -407,7 +398,7 @@ async function renderCalendarUpcoming() {
         <div class="upcoming-item" data-idx="${upcoming.indexOf(m)}">
           <span class="u-when">${fmtTime(m.scheduled_at)}</span>
           <span class="u-name">${name}</span>
-          ${waLink ? `<a href="${waLink}" target="_blank" rel="noopener" class="u-whatsapp">💬 Text</a>` : ''}
+          ${waLink ? `<a href="${waLink}" target="_blank" rel="noopener" class="u-whatsapp">Text</a>` : ''}
           ${m.zoom_link ? `<a href="${m.zoom_link}" target="_blank" rel="noopener" class="u-join">Join</a>` : ''}
         </div>`;
       })
@@ -563,7 +554,7 @@ async function renderMeetingsTab() {
                   ? `<a href="${whatsappLink(
                       d.contact.phone,
                       confirmMeetingMessage(d.contact.name, d.scheduled_at, d.zoom_link)
-                    )}" target="_blank" rel="noopener" class="mt-whatsapp-btn">💬 Text</a>`
+                    )}" target="_blank" rel="noopener" class="mt-whatsapp-btn">Text</a>`
                   : ''
               }<button class="resched-btn" data-id="${d.id}">Reschedule</button>`
         }</div>
@@ -798,7 +789,7 @@ function dealCard(deal) {
   card.innerHTML = `
     <div class="dname">${deal.contact?.name || 'unknown'}</div>
     <div class="dwhen">${deal.stage === 'meeting_booked' ? fmtWhen(deal.scheduled_at) : ''}</div>
-    ${deal.reschedule_requested ? '<div class="badge-warning">⚠ reschedule requested</div>' : ''}
+    ${deal.reschedule_requested ? '<div class="badge-warning">Reschedule requested</div>' : ''}
   `;
   card.addEventListener('dragstart', (e) => {
     e.dataTransfer.setData('text/plain', deal.id);
@@ -821,21 +812,6 @@ async function openDealModal(id) {
   await loadZoomStatus();
   const contact = deal.contact || {};
 
-  const timelineHtml = deal.activities.length
-    ? deal.activities
-        .map(
-          (a) => `
-        <div class="timeline-item">
-          <div class="timeline-icon">${ACTIVITY_ICONS[a.type] || '•'}</div>
-          <div class="timeline-body">
-            <div class="t-when">${fmtWhen(a.at)}</div>
-            <div class="t-text">${a.summary}${a.type === 'email' && a.meta?.opened_at ? ' <strong>(opened)</strong>' : ''}</div>
-          </div>
-        </div>`
-        )
-        .join('')
-    : '<div class="empty">No activity yet.</div>';
-
   const calendarLinks = deal.scheduled_at
     ? await api(`/api/deals/${id}/calendar-link`).catch(() => null)
     : null;
@@ -855,7 +831,7 @@ async function openDealModal(id) {
         ? `<a href="${whatsappLink(
             contact.phone,
             confirmMeetingMessage(contact.name, deal.scheduled_at, deal.zoom_link)
-          )}" target="_blank" rel="noopener" class="whatsapp-btn" style="margin-top:8px">💬 Text to confirm</a>`
+          )}" target="_blank" rel="noopener" class="whatsapp-btn" style="margin-top:8px">Text to confirm</a>`
         : ''
     }
 
@@ -939,22 +915,6 @@ async function openDealModal(id) {
         : ''
     }
 
-    ${
-      isAgent
-        ? ''
-        : `<div class="section-head"><h2>Stage</h2></div>
-    <div class="mactions">
-      <button id="m-won" class="primary">Mark won</button>
-      <button id="m-lost" class="danger">Mark lost</button>
-    </div>`
-    }
-
-    ${
-      isAgent
-        ? ''
-        : `<div class="section-head"><h2>Activity timeline</h2></div>
-    <div class="timeline">${timelineHtml}</div>`
-    }
   `;
 
   $('#modal-body').innerHTML = body;
@@ -1042,19 +1002,6 @@ async function openDealModal(id) {
     }
   }
 
-  if ($('#m-won')) {
-    $('#m-won').addEventListener('click', async () => {
-      await api(`/api/deals/${id}/stage`, { method: 'POST', body: JSON.stringify({ stage: 'won', changed_by: currentUser() }) });
-      closeModal(); refresh();
-    });
-  }
-
-  if ($('#m-lost')) {
-    $('#m-lost').addEventListener('click', async () => {
-      await api(`/api/deals/${id}/stage`, { method: 'POST', body: JSON.stringify({ stage: 'lost', changed_by: currentUser() }) });
-      closeModal(); refresh();
-    });
-  }
 }
 
 function closeModal() {
