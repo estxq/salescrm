@@ -8,7 +8,19 @@ import { fileURLToPath } from 'node:url';
 // reach the error-handling middleware below instead.
 import 'express-async-errors';
 
-import { listUsers, createUser, updateUser, deleteUser } from './lib/users.js';
+import {
+  AuthError,
+  createTeamAndAccount,
+  joinTeamAndAccount,
+  login,
+  getAccount,
+  getTeam,
+  sessionInfo,
+  forEachTeam,
+} from './lib/accounts.js';
+import { startSession, endSession, sessionAccountId, setOAuthState, takeOAuthState } from './lib/session.js';
+import { withTeam } from './lib/context.js';
+import crypto from 'node:crypto';
 import { listContacts, getContact, findContactByPhone, createContact, updateContact, deleteContact } from './lib/contacts.js';
 import {
   STAGES,
@@ -103,30 +115,92 @@ async function bookMeeting(deal, contact, { scheduled_at, zoom_link, changed_by 
   return booked;
 }
 
-// ---------- Users (lightweight identity, no auth) ----------
-app.get('/api/users', async (req, res) => res.json(await listUsers()));
-app.post('/api/users', async (req, res) => {
-  try {
-    res.status(201).json(await createUser(req.body || {}));
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
+// ---------- Accounts & teams ----------
+// Public: sign up (start a team, or join one with its invite code) and log in.
+// Everything registered after the gate below needs a valid session.
+async function respondWithSession(req, res, { account, team }, status = 200) {
+  await startSession(req, res, account.id);
+  res.status(status).json(await sessionInfo(account, team));
+}
+
+app.post('/api/auth/signup', async (req, res) => {
+  const body = req.body || {};
+  const result = body.mode === 'join' ? await joinTeamAndAccount(body) : await createTeamAndAccount(body);
+  await respondWithSession(req, res, result, 201);
 });
-app.patch('/api/users/:id', async (req, res) => {
-  const user = await updateUser(req.params.id, req.body || {});
-  if (!user) return res.status(404).json({ error: 'not found' });
-  res.json(user);
+
+app.post('/api/auth/login', async (req, res) => {
+  await respondWithSession(req, res, await login(req.body || {}));
 });
-app.delete('/api/users/:id', async (req, res) => {
-  const removed = await deleteUser(req.params.id);
-  if (!removed) return res.status(404).json({ error: 'not found' });
+
+app.post('/api/auth/logout', (req, res) => {
+  endSession(req, res);
   res.json({ ok: true });
 });
 
-// ---------- Leads (Google Sheet) ----------
+app.get('/api/auth/me', async (req, res) => {
+  const accountId = await sessionAccountId(req);
+  const account = accountId && (await getAccount(accountId));
+  const team = account && (await getTeam(account.team_id));
+  if (!account || !team) return res.status(401).json({ error: 'not_logged_in' });
+  res.json(await sessionInfo(account, team));
+});
+
+// ---------- Reminders ----------
+// Locally, a setInterval keeps checking in the background (see below).
+// On Vercel there's no persistent process to run a timer in, so this same
+// check is instead triggered by Vercel Cron hitting this route (configured
+// in vercel.json). Protected by CRON_SECRET so randoms can't spam it. It has
+// no user behind it, so it runs the check for every team in turn.
+app.get('/api/cron/reminders', async (req, res) => {
+  if (process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  await checkAllTeamsReminders();
+  res.json({ ok: true });
+});
+
+async function checkAllTeamsReminders() {
+  await forEachTeam(() => checkAndSendReminders());
+}
+
+// ---------- The gate ----------
+// From here down every request must carry a valid session. It also puts the
+// request "inside" the caller's team, which is what keeps one team's contacts,
+// deals and Zoom link invisible to another.
+app.use(async (req, res, next) => {
+  const accountId = await sessionAccountId(req);
+  const account = accountId && (await getAccount(accountId));
+  if (!account) {
+    if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'not_logged_in' });
+    return res.redirect('/');
+  }
+  req.user = account;
+  // Who did something is whoever is logged in — never a name the browser sent.
+  if (req.body && typeof req.body === 'object') {
+    for (const key of ['changed_by', 'requested_by', 'made_by', 'deleted_by', 'created_by']) {
+      if (key in req.body) req.body[key] = account.name;
+    }
+  }
+  withTeam(account.team_id, next);
+});
+
+// Server-side role check for the routes each role's page is built around, so
+// hiding a tab is not the only thing stopping the other role.
+function requireRole(role) {
+  return (req, res, next) => {
+    if (req.user.role !== role) {
+      return res.status(403).json({ error: `Only the ${role === 'agent' ? 'Agent' : 'Caller'} can do this.` });
+    }
+    next();
+  };
+}
+const callerOnly = requireRole('caller');
+const agentOnly = requireRole('agent');
+
 app.get('/api/leads', async (req, res) => res.json(await fetchLeads()));
 
-app.post('/api/leads/import', async (req, res) => {
+app.post('/api/leads/import', callerOnly, async (req, res) => {
   const created_by = req.body?.created_by || 'caller';
   const leads = await fetchLeads();
   const created = [];
@@ -162,7 +236,7 @@ function duplicatePhoneResponse(res, existing) {
   });
 }
 
-app.post('/api/contacts', async (req, res) => {
+app.post('/api/contacts', callerOnly, async (req, res) => {
   const { name, phone, email, company, notes, created_by, scheduled_at, zoom_link } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   const duplicate = await findContactByPhone(phone);
@@ -287,7 +361,7 @@ app.post('/api/deals/:id/stage', async (req, res) => {
   res.json(deal);
 });
 
-app.post('/api/deals/:id/schedule', async (req, res) => {
+app.post('/api/deals/:id/schedule', callerOnly, async (req, res) => {
   const { zoom_link, scheduled_at, changed_by } = req.body;
   if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at required' });
   const existing = await getDeal(req.params.id);
@@ -301,7 +375,7 @@ app.post('/api/deals/:id/schedule', async (req, res) => {
 
 // Deletes the meeting (cancels the real Zoom meeting first) but keeps the
 // contact/deal — distinct from deleting the contact entirely.
-app.delete('/api/deals/:id/meeting', async (req, res) => {
+app.delete('/api/deals/:id/meeting', callerOnly, async (req, res) => {
   const before = await getDeal(req.params.id);
   if (!before) return res.status(404).json({ error: 'not found' });
   await cleanupZoomMeeting(before);
@@ -310,7 +384,7 @@ app.delete('/api/deals/:id/meeting', async (req, res) => {
   res.json(deal);
 });
 
-app.post('/api/deals/:id/reschedule', async (req, res) => {
+app.post('/api/deals/:id/reschedule', callerOnly, async (req, res) => {
   const { scheduled_at, zoom_link, changed_by } = req.body;
   if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at required' });
   const existing = await getDeal(req.params.id);
@@ -333,7 +407,7 @@ app.post('/api/deals/:id/reschedule', async (req, res) => {
 
 // The agent flags a problem with a remark; the caller is the one who
 // actually picks the new time via the /reschedule route above.
-app.post('/api/deals/:id/request-reschedule', async (req, res) => {
+app.post('/api/deals/:id/request-reschedule', agentOnly, async (req, res) => {
   const { remark, requested_by } = req.body;
   if (!remark) return res.status(400).json({ error: 'remark required' });
   const deal = await requestReschedule(req.params.id, { remark, requested_by });
@@ -345,7 +419,7 @@ app.post('/api/deals/:id/request-reschedule', async (req, res) => {
 // Meetings booked directly in Zoom have no deal to attach a reschedule flag
 // to, so this just raises a notification for whoever manages the calendar —
 // they'll need to move it in Zoom itself, this app has no reach into it.
-app.post('/api/zoom-meetings/:meetingId/request-reschedule', async (req, res) => {
+app.post('/api/zoom-meetings/:meetingId/request-reschedule', agentOnly, async (req, res) => {
   const { remark, requested_by, topic, scheduled_at } = req.body;
   if (!remark) return res.status(400).json({ error: 'remark required' });
   const when = scheduled_at ? new Date(scheduled_at).toLocaleString() : 'the scheduled time';
@@ -368,7 +442,7 @@ app.get('/api/followup-outcomes', (req, res) => {
 
 // Same idea as a deal's meeting follow-up, but for a Zoom-only meeting with
 // no deal to update the stage on — this just records how it went.
-app.post('/api/zoom-meetings/:meetingId/outcome', async (req, res) => {
+app.post('/api/zoom-meetings/:meetingId/outcome', agentOnly, async (req, res) => {
   const { outcome, note, made_by, topic, scheduled_at } = req.body;
   const config = FOLLOWUP_OUTCOMES[outcome];
   if (!config) return res.status(400).json({ error: 'invalid outcome' });
@@ -390,7 +464,7 @@ app.post('/api/zoom-meetings/:meetingId/outcome', async (req, res) => {
 // deal's scheduling fields. Confirmed on the frontend before this fires.
 // Moves a meeting booked directly in Zoom to a new time — changes it on Zoom
 // itself (same join link), then tells the other role.
-app.post('/api/zoom-meetings/:meetingId/reschedule', async (req, res) => {
+app.post('/api/zoom-meetings/:meetingId/reschedule', callerOnly, async (req, res) => {
   const { scheduled_at, changed_by, topic } = req.body || {};
   if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at required' });
   if (!(await zoom.isConnected())) return res.status(400).json({ error: 'Zoom not connected' });
@@ -410,7 +484,7 @@ app.post('/api/zoom-meetings/:meetingId/reschedule', async (req, res) => {
   res.json({ ok: true });
 });
 
-app.delete('/api/zoom-meetings/:meetingId', async (req, res) => {
+app.delete('/api/zoom-meetings/:meetingId', callerOnly, async (req, res) => {
   if (!(await zoom.isConnected())) return res.status(400).json({ error: 'Zoom not connected' });
   try {
     await zoom.deleteMeeting(req.params.meetingId);
@@ -431,7 +505,7 @@ app.delete('/api/zoom-meetings/:meetingId', async (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/api/deals/:id/followup', async (req, res) => {
+app.post('/api/deals/:id/followup', agentOnly, async (req, res) => {
   const { outcome, note, changed_by } = req.body;
   const before = await getDeal(req.params.id);
   const deal = await logFollowUp(req.params.id, { outcome, note, changed_by });
@@ -564,7 +638,7 @@ app.get('/api/summary/month', async (req, res) => {
 });
 
 // ---------- Analytics ----------
-app.get('/api/analytics', async (req, res) => {
+app.get('/api/analytics', agentOnly, async (req, res) => {
   const deals = await listDeals();
 
   const dealsByStage = STAGES.map((stage) => ({
@@ -594,9 +668,9 @@ app.get('/api/analytics', async (req, res) => {
 
 // ---------- In-app notifications (replaces the old WhatsApp pings) ----------
 app.get('/api/notifications', async (req, res) =>
-  res.json(await listNotifications({ unreadOnly: req.query.unread === 'true', role: req.query.role, status: req.query.status }))
+  res.json(await listNotifications({ unreadOnly: req.query.unread === 'true', role: req.user.role, status: req.query.status }))
 );
-app.get('/api/notifications/unread-count', async (req, res) => res.json({ count: await unreadCount({ role: req.query.role }) }));
+app.get('/api/notifications/unread-count', async (req, res) => res.json({ count: await unreadCount({ role: req.user.role }) }));
 app.post('/api/notifications/:id/read', async (req, res) => {
   const n = await markRead(req.params.id);
   if (!n) return res.status(404).json({ error: 'not found' });
@@ -613,19 +687,22 @@ app.delete('/api/notifications/:id', async (req, res) => {
   res.json({ ok: true });
 });
 app.post('/api/notifications/read-all', async (req, res) => {
-  await markAllRead({ role: req.body?.role });
+  await markAllRead({ role: req.user.role });
   res.json({ ok: true });
 });
 
 // ---------- Zoom (the agent's own personal account) ----------
-app.get('/auth/zoom', (req, res) => {
+app.get('/auth/zoom', agentOnly, (req, res) => {
   if (!zoom.isConfigured()) return res.status(400).send('Zoom not configured — set ZOOM_CLIENT_ID / ZOOM_CLIENT_SECRET in .env.');
-  res.redirect(zoom.buildAuthorizeUrl());
+  const state = crypto.randomBytes(16).toString('hex');
+  setOAuthState(req, res, state);
+  res.redirect(zoom.buildAuthorizeUrl(state));
 });
 
-app.get('/auth/zoom/callback', async (req, res) => {
-  const { code, error } = req.query;
-  if (error || !code) return res.redirect('/?zoom=error');
+app.get('/auth/zoom/callback', agentOnly, async (req, res) => {
+  const { code, error, state } = req.query;
+  const expected = takeOAuthState(req, res);
+  if (error || !code || !state || state !== expected) return res.redirect('/?zoom=error');
   try {
     await zoom.exchangeCode(code);
     res.redirect('/?zoom=connected');
@@ -639,29 +716,17 @@ app.get('/api/zoom/status', async (req, res) => {
   res.json({ configured: zoom.isConfigured(), connected: await zoom.isConnected(), email: await zoom.connectedEmail() });
 });
 
-app.post('/api/zoom/disconnect', async (req, res) => {
+app.post('/api/zoom/disconnect', agentOnly, async (req, res) => {
   await zoom.disconnect();
-  res.json({ ok: true });
-});
-
-// ---------- Reminders ----------
-// Locally, a setInterval keeps checking in the background (see below).
-// On Vercel there's no persistent process to run a timer in, so this same
-// check is instead triggered by Vercel Cron hitting this route (configured
-// in vercel.json). Protected by CRON_SECRET so randoms can't spam it.
-app.get('/api/cron/reminders', async (req, res) => {
-  if (process.env.CRON_SECRET && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
-    return res.status(401).json({ error: 'unauthorized' });
-  }
-  await checkAndSendReminders();
   res.json({ ok: true });
 });
 
 // Catches anything that reaches here — a failed Redis call, a bad Zoom
 // response, whatever — and returns a clean error instead of hanging.
 app.use((err, req, res, next) => {
-  console.error('[unhandled]', err);
   if (res.headersSent) return next(err);
+  if (err instanceof AuthError) return res.status(err.status).json({ error: err.message }); // expected: wrong password, full team...
+  console.error('[unhandled]', err);
   res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
@@ -675,9 +740,9 @@ if (!process.env.VERCEL) {
   // the reminder window (default 60 min) and raise a notification once per
   // meeting. Only makes sense with a long-running process, hence the guard.
   const REMINDER_CHECK_MS = 5 * 60 * 1000;
-  checkAndSendReminders().catch((err) => console.error('[reminders] startup check failed', err));
+  checkAllTeamsReminders().catch((err) => console.error('[reminders] startup check failed', err));
   setInterval(() => {
-    checkAndSendReminders().catch((err) => console.error('[reminders] check failed', err));
+    checkAllTeamsReminders().catch((err) => console.error('[reminders] check failed', err));
   }, REMINDER_CHECK_MS);
 }
 

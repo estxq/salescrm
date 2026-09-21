@@ -101,15 +101,100 @@ body {
   border: 1px solid var(--border);
   background: var(--bg);
 }
-.acting-as-pill select {
+/* ---------- Account menu (top right) ---------- */
+.account-wrap { position: relative; }
+.account-btn {
   font: inherit;
   font-size: 13px;
   padding: 6px 12px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--card);
+  color: var(--text);
   cursor: pointer;
+  white-space: nowrap;
 }
+.account-btn .caret { color: var(--muted); font-size: 10px; }
+.account-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 270px;
+  padding: 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.account-menu[hidden] { display: none; }
+.am-name { font-weight: 700; font-size: 14px; }
+.am-sub { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.am-invite { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+.am-code-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.am-code-row code, .invite-banner code {
+  font-size: 15px; font-weight: 700; letter-spacing: 0.08em;
+  background: var(--accent-weak); color: var(--accent);
+  padding: 4px 10px; border-radius: 6px;
+}
+.am-code-row button, .invite-banner button:not(.ib-dismiss) {
+  font-size: 12px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: white; cursor: pointer;
+}
+.am-logout {
+  margin-top: 10px; font: inherit; font-size: 13px; padding: 7px 10px;
+  border-radius: 8px; border: 1px solid var(--border); background: var(--card); cursor: pointer; text-align: center;
+}
+.am-logout:hover { background: var(--bg); }
+
+.invite-banner {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 0 24px 4px; padding: 10px 14px;
+  background: var(--accent-weak); border: 1px solid #c7d7fb; border-radius: 10px;
+  font-size: 13px;
+}
+.invite-banner[hidden] { display: none; }
+.invite-banner .ib-dismiss { margin-left: auto; border: none; background: none; font-size: 18px; line-height: 1; cursor: pointer; color: var(--muted); }
+
+/* ---------- Login / sign-up ---------- */
+.app-shell[hidden] { display: none !important; }
+.auth-screen {
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px 16px;
+  background: var(--bg);
+}
+.auth-screen[hidden] { display: none !important; }
+.auth-card {
+  width: 100%; max-width: 420px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 26px 26px 28px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
+}
+.auth-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+.auth-tabs { display: flex; gap: 4px; padding: 3px; background: var(--bg); border-radius: 10px; margin-bottom: 14px; }
+.auth-tab {
+  flex: 1; font: inherit; font-size: 13px; padding: 7px 8px; border: none; border-radius: 8px;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.auth-tab.active { background: var(--card); color: var(--text); font-weight: 600; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
+.auth-blurb { margin: 0 0 14px; font-size: 13px; color: var(--muted); line-height: 1.5; min-height: 1.5em; }
+.auth-form [hidden] { display: none !important; }
+.auth-form button[type=submit] { align-self: stretch; padding: 10px 16px; font-size: 14px; margin-top: 4px; }
+.auth-roles { border: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.auth-roles legend { font-size: 13px; color: var(--muted); padding: 0; margin-bottom: 4px; }
+.form .auth-role {
+  flex-direction: row; align-items: center; gap: 10px;
+  padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; color: var(--text);
+}
+.auth-role input { margin: 0; }
+.auth-role span { display: flex; flex-direction: column; gap: 1px; }
+.auth-role small { color: var(--muted); font-size: 12px; }
+.auth-role:has(input:checked) { border-color: var(--accent); background: var(--accent-weak); }
 
 .topbar-right { display: flex; align-items: center; gap: 14px; }
 

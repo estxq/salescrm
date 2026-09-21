@@ -1,7 +1,7 @@
 {
   "name": "schedule-hub",
   "version": "1.0.0",
-  "description": "A small in-house CRM for a caller / PA / agent team: contacts, deal pipeline, call logging, email templates, real Zoom scheduling, and a reporting dashboard.",
+  "description": "A small in-house CRM for a caller / agent team: contacts, deal pipeline, real Zoom scheduling, and a reporting dashboard.",
   "type": "module",
   "main": "server.js",
   "scripts": {

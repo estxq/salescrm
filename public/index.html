@@ -7,7 +7,34 @@
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-<div class="app-shell">
+<!-- Shown instead of the app until someone is logged in -->
+<div id="auth-screen" class="auth-screen" hidden>
+  <div class="auth-card">
+    <div class="auth-brand"><div class="sidebar-logo">SH</div><div class="side-workspace-name">Schedule Hub</div></div>
+    <div class="auth-tabs" role="tablist">
+      <button type="button" class="auth-tab active" data-auth-mode="login">Log in</button>
+      <button type="button" class="auth-tab" data-auth-mode="create">Create a team</button>
+      <button type="button" class="auth-tab" data-auth-mode="join">Join a team</button>
+    </div>
+    <p id="auth-blurb" class="auth-blurb"></p>
+    <form id="auth-form" class="form auth-form" novalidate>
+      <label data-auth-field="name">Your name <input name="name" autocomplete="name" /></label>
+      <label data-auth-field="team_name">Team name <input name="team_name" placeholder="e.g. Arron &amp; Sam" autocomplete="off" /></label>
+      <label data-auth-field="invite_code">Invite code <input name="invite_code" placeholder="ABCD-2345" autocomplete="off" autocapitalize="characters" /></label>
+      <fieldset data-auth-field="role" class="auth-roles">
+        <legend>I am the</legend>
+        <label class="auth-role"><input type="radio" name="role" value="caller" /> <span><strong>Caller</strong><small>Adds contacts, schedules meetings</small></span></label>
+        <label class="auth-role"><input type="radio" name="role" value="agent" /> <span><strong>Agent</strong><small>Attends meetings, tracks results</small></span></label>
+      </fieldset>
+      <label>Email <input name="email" type="email" autocomplete="email" /></label>
+      <label>Password <input name="password" type="password" autocomplete="current-password" /></label>
+      <div id="auth-error" class="form-warning" hidden></div>
+      <button type="submit" id="auth-submit">Log in</button>
+    </form>
+  </div>
+</div>
+
+<div id="app-shell" class="app-shell" hidden>
   <aside class="sidebar">
     <div class="side-workspace">
       <div class="sidebar-logo">SH</div>
@@ -41,9 +68,19 @@
             <div id="notif-list" class="notif-list"></div>
           </div>
         </div>
-        <label class="acting-as-pill">
-          <select id="current-user"></select>
-        </label>
+        <div class="account-wrap">
+          <button id="account-btn" class="account-btn" type="button"><span id="account-label"></span> <span class="caret">▾</span></button>
+          <div id="account-menu" class="account-menu" hidden>
+            <div class="am-name" id="am-name"></div>
+            <div class="am-sub" id="am-email"></div>
+            <div class="am-sub">Team: <strong id="am-team"></strong></div>
+            <div id="am-invite" class="am-invite" hidden>
+              <div class="am-sub">Invite your <span id="am-invite-role"></span> — they join with this code:</div>
+              <div class="am-code-row"><code id="am-invite-code"></code><button type="button" id="am-copy">Copy</button></div>
+            </div>
+            <button type="button" id="logout-btn" class="am-logout">Log out</button>
+          </div>
+        </div>
       </div>
     </header>
 
@@ -56,6 +93,13 @@
         <button class="tab-btn" data-tab="pipeline">Pipeline</button>
         <button class="tab-btn" data-tab="analytics">Analytics</button>
       </nav>
+    </div>
+
+    <div id="invite-banner" class="invite-banner" hidden>
+      <span>Your team is set up. Send your <strong id="ib-role"></strong> this invite code so they can join:</span>
+      <code id="ib-code"></code>
+      <button type="button" id="ib-copy">Copy</button>
+      <button type="button" id="ib-dismiss" class="ib-dismiss" aria-label="Dismiss">×</button>
     </div>
 
     <div id="conn-banner" class="conn-banner" hidden>

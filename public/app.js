@@ -29,6 +29,11 @@ async function api(path, opts) {
     showConnBanner(); // couldn't reach the server at all
     throw err;
   }
+  if (res.status === 401 && !path.startsWith('/api/auth/')) {
+    // Session expired or logged out in another tab — back to the login screen.
+    location.reload();
+    throw Object.assign(new Error('Signed out'), { status: 401 });
+  }
   if (res.status >= 500) showConnBanner();
   else hideConnBanner();
   if (!res.ok) {
@@ -71,9 +76,11 @@ function confirmMeetingMessage(name, scheduledAt, zoomLink) {
   return `Hi ${name || 'there'}, just confirming our meeting on ${when}.${zoomLink ? ` Zoom link: ${zoomLink}` : ''}`;
 }
 
+// Who's logged in — set by startApp() once /api/auth/me answers. The server
+// takes the actor's name from the session anyway; this is for display.
+let ME = null;
 function currentUser() {
-  const sel = $('#current-user');
-  return sel && sel.value ? sel.value : 'someone';
+  return ME ? ME.user.name : 'someone';
 }
 
 // ---------- tabs (sidebar icons + page-head tabs both drive the same state) ----------
@@ -125,23 +132,6 @@ function applyRoleVisibility(role) {
   $('#summary-grid').classList.toggle('caller-summary', isCaller);
   if ($('#tab-summary').classList.contains('active')) renderSummaryTab();
   refreshNotifCount(); // the bell only counts what's addressed to this role
-}
-
-async function loadUsers() {
-  const users = await api('/api/users');
-  const sel = $('#current-user');
-  sel.innerHTML = users
-    .map((u) => `<option value="${u.name}" data-role="${u.role}">${u.name.toLowerCase() === u.role ? u.name : `${u.name} (${u.role})`}</option>`)
-    .join('');
-  const saved = localStorage.getItem('scheduleHubUser');
-  if (saved && users.some((u) => u.name === saved)) sel.value = saved;
-  $('#page-user-name').textContent = sel.value;
-  applyRoleVisibility(sel.selectedOptions[0]?.dataset.role || 'agent');
-  sel.addEventListener('change', () => {
-    localStorage.setItem('scheduleHubUser', sel.value);
-    $('#page-user-name').textContent = sel.value;
-    applyRoleVisibility(sel.selectedOptions[0]?.dataset.role || 'agent');
-  });
 }
 
 $('#global-search').addEventListener('keydown', (e) => {
@@ -1236,22 +1226,171 @@ $('#conn-retry').addEventListener('click', () => {
   refreshNotifCount();
 });
 
-(async function init() {
-  const params = new URLSearchParams(location.search);
-  if (params.get('zoom') === 'connected') {
-    history.replaceState({}, '', location.pathname);
-    alert('Zoom connected.');
-  } else if (params.get('zoom') === 'error') {
-    history.replaceState({}, '', location.pathname);
-    alert('Zoom connection failed — check the server logs.');
-  }
+// =====================================================================
+// LOGIN / TEAMS
+// =====================================================================
+const AUTH_MODES = {
+  login: {
+    blurb: 'Log in to your team.',
+    submit: 'Log in',
+    fields: [],
+  },
+  create: {
+    blurb: 'Start a team for you and your teammate. A team is one Caller and one Agent — your data stays private to it.',
+    submit: 'Create team',
+    fields: ['name', 'team_name', 'role'],
+  },
+  join: {
+    blurb: 'Your teammate already made the team? Enter the invite code they sent you.',
+    submit: 'Join team',
+    fields: ['name', 'invite_code', 'role'],
+  },
+};
+let authMode = 'login';
 
-  await loadUsers();
+function setAuthMode(mode) {
+  authMode = mode;
+  const cfg = AUTH_MODES[mode];
+  $$('.auth-tab').forEach((t) => t.classList.toggle('active', t.dataset.authMode === mode));
+  $$('#auth-form [data-auth-field]').forEach((el) => {
+    el.hidden = !cfg.fields.includes(el.dataset.authField);
+  });
+  $('#auth-blurb').textContent = cfg.blurb;
+  $('#auth-submit').textContent = cfg.submit;
+  $('#auth-form [name=password]').autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+  $('#auth-error').hidden = true;
+}
+
+function showAuthScreen() {
+  $('#app-shell').hidden = true;
+  $('#auth-screen').hidden = false;
+  setAuthMode('login');
+}
+
+$$('.auth-tab').forEach((tab) => tab.addEventListener('click', () => setAuthMode(tab.dataset.authMode)));
+
+$('#auth-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errorEl = $('#auth-error');
+  const submit = $('#auth-submit');
+  const form = new FormData(e.target);
+  errorEl.hidden = true;
+  submit.disabled = true;
+  try {
+    const payload = Object.fromEntries(form.entries());
+    const info =
+      authMode === 'login'
+        ? await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ email: payload.email, password: payload.password }) })
+        : await api('/api/auth/signup', { method: 'POST', body: JSON.stringify({ ...payload, mode: authMode }) });
+    e.target.reset();
+    await startApp(info);
+  } catch (err) {
+    errorEl.textContent = err.status === 401 || err.status === 400 || err.status === 409 || err.status === 429 ? err.message : 'Something went wrong — try again.';
+    errorEl.hidden = false;
+  } finally {
+    submit.disabled = false;
+  }
+});
+
+const ROLE_LABEL = { caller: 'Caller', agent: 'Agent' };
+
+function copyText(text, btn) {
+  const done = () => {
+    const original = btn.textContent;
+    btn.textContent = 'Copied';
+    setTimeout(() => (btn.textContent = original), 1500);
+  };
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(done, done);
+  else done();
+}
+
+function renderAccount() {
+  const { user, team, invite } = ME;
+  $('#page-user-name').textContent = user.name;
+  $('#account-label').textContent = `${user.name} · ${ROLE_LABEL[user.role]}`;
+  $('#am-name').textContent = `${user.name} (${ROLE_LABEL[user.role]})`;
+  $('#am-email').textContent = user.email;
+  $('#am-team').textContent = team.name;
+  $('#am-invite').hidden = !invite;
+  const showBanner = Boolean(invite) && sessionStorage.getItem('inviteBannerDismissed') !== '1';
+  $('#invite-banner').hidden = !showBanner;
+  if (invite) {
+    $('#am-invite-role').textContent = ROLE_LABEL[invite.role];
+    $('#am-invite-code').textContent = invite.code;
+    $('#ib-role').textContent = ROLE_LABEL[invite.role];
+    $('#ib-code').textContent = invite.code;
+  }
+}
+
+$('#account-btn').addEventListener('click', () => {
+  const menu = $('#account-menu');
+  menu.hidden = !menu.hidden;
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.account-wrap')) $('#account-menu').hidden = true;
+});
+$('#am-copy').addEventListener('click', (e) => copyText($('#am-invite-code').textContent, e.target));
+$('#ib-copy').addEventListener('click', (e) => copyText($('#ib-code').textContent, e.target));
+$('#ib-dismiss').addEventListener('click', () => {
+  sessionStorage.setItem('inviteBannerDismissed', '1');
+  $('#invite-banner').hidden = true;
+});
+$('#logout-btn').addEventListener('click', async () => {
+  try {
+    await api('/api/auth/logout', { method: 'POST' });
+  } finally {
+    location.reload(); // wipes every bit of the previous person's screen state
+  }
+});
+
+// Picks up a teammate joining (the invite code stops being needed) without a reload.
+async function refreshMe() {
+  try {
+    const res = await fetch('/api/auth/me');
+    if (res.status === 401) return location.reload();
+    if (res.ok) {
+      ME = await res.json();
+      renderAccount();
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+let pollTimer = null;
+async function startApp(info) {
+  ME = info;
+  $('#auth-screen').hidden = true;
+  $('#app-shell').hidden = false;
+  renderAccount();
+  applyRoleVisibility(info.user.role);
   await loadZoomStatus();
   await refreshNotifCount();
   await refresh();
-  setInterval(() => {
-    if (openInlineForms === 0) refresh(); // don't stomp on an in-progress edit
-    refreshNotifCount();
-  }, 20000);
+  if (!pollTimer) {
+    pollTimer = setInterval(() => {
+      if (openInlineForms === 0) refresh(); // don't stomp on an in-progress edit
+      refreshNotifCount();
+      refreshMe();
+    }, 20000);
+  }
+}
+
+(async function init() {
+  const params = new URLSearchParams(location.search);
+  const zoomResult = params.get('zoom');
+  if (zoomResult) history.replaceState({}, '', location.pathname);
+
+  let res;
+  try {
+    res = await fetch('/api/auth/me');
+  } catch (err) {
+    showConnBanner();
+    $('#app-shell').hidden = false;
+    return;
+  }
+  if (!res.ok) return showAuthScreen();
+  await startApp(await res.json());
+  if (zoomResult === 'connected') alert('Zoom connected.');
+  else if (zoomResult === 'error') alert('Zoom connection failed — check the server logs.');
 })();

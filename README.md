@@ -8,15 +8,22 @@ external chat integration; it's a single shared source of truth.
 
 ## What's in it
 
-- **Role-based views**: switching "Acting as" between Caller / Agent
-  changes which tabs are visible, matching what each role actually does —
-  Caller sees Summary, Meetings, Contacts, Pipeline and handles
-  calling and scheduling; Agent sees Summary, Meetings, Contacts, Pipeline,
-  Analytics and just attends the meetings. The "Connect Zoom"
-  control only appears for Agent, since it's their own personal account —
-  everyone else just sees a read-only connected/not-connected status. This
-  is a decluttering convenience, not access control: there's no real auth,
-  so the underlying API is open to whichever role is selected.
+- **Accounts and teams**: nothing loads until you log in. Someone
+  **creates a team** (email, password, and whether they're the Caller or the
+  Agent) and gets an **invite code**; their teammate chooses **Join a team**,
+  enters the code and takes the other seat. A team is one Caller and one
+  Agent — a third person can't join, and anyone else who wants to use the app
+  makes their own team. Teams are fully separate: contacts, deals,
+  notifications and the Zoom connection are stored per team, and the data
+  layer refuses to read them without a team, so one team can't see another's.
+- **Role-based views**: your role is fixed by your account, and it's enforced
+  on the server, not just by hiding tabs. Caller sees Summary, Meetings,
+  Contacts, Pipeline and handles calling and scheduling (adding contacts,
+  scheduling, rescheduling, deleting meetings); Agent sees Summary, Meetings,
+  Contacts, Pipeline, Analytics and just attends the meetings (requesting
+  reschedules, logging follow-ups, connecting Zoom). Calling the other role's
+  endpoints returns 403. Names on notes, bookings and notifications come from
+  the logged-in account, never from what the browser sends.
 - **Summary** (the landing page): both roles get the same month calendar of
   meetings (CRM meetings plus Zoom-only ones like interviews). The **Agent**
   also gets an "Upcoming" list of the next day's meetings above it. The
@@ -153,14 +160,32 @@ and an in-process 5-minute timer, exactly as before.
 ## Data model
 
 Plain JSON files under `data/` (`contacts.json`, `deals.json`,
-`activities.json`, `users.json`, `notifications.json`,
-`zoom_account.json`) via `lib/db.js`'s tiny generic collection store when
+`activities.json`, `notifications.json`, `accounts.json`, `teams.json`, plus a
+per-team copy of each, and `zoom_account`) via `lib/db.js`'s tiny generic collection store when
 running locally — good enough for one small team testing on a laptop. On
 Vercel the same collections live in Upstash Redis instead (see above),
 since serverless functions can't reliably write to disk.
 
-There's no login/password system — "Acting as" in the top bar is just a
-named identity picker (persisted in your browser) used to attribute
-notes and bookings to a person. Add real auth before putting this on the
-open internet. The connected Zoom account is a single shared credential for
-the whole team (it's the agent's own account, not per-user).
+## Accounts, sessions and teams
+
+Passwords are hashed with scrypt (Node's built-in `crypto`, no extra
+dependency) and never leave the server. A login sets an `HttpOnly`,
+`SameSite=Lax` (and `Secure` over HTTPS) cookie signed with a secret — set
+`SESSION_SECRET` to choose your own, otherwise one is generated once and kept
+in the same store as the data. Sessions last 30 days; five wrong passwords
+lock an account for 15 minutes.
+
+Accounts and teams live in shared `accounts` / `teams` collections; everything
+else is keyed per team (`t<teamId>:contacts` and so on, `t1_contacts.json`
+locally). The connected Zoom account is per team too — it's that team's
+agent's own account.
+
+**Data from before teams existed** (the original single-team data, including
+its Zoom connection) is handed to the **first team ever created**, once. On a
+deployment that already has data, sign up right after deploying so it goes to
+you. The old un-prefixed copies are left in place as a backup (the Zoom token
+is moved, not copied).
+
+Not included: email verification and password reset (there's no email
+service), so keep your password safe — and as there's no way to remove a
+member, a team's two seats are permanent for now.
