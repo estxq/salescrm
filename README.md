@@ -103,7 +103,7 @@ external chat integration; it's a single shared source of truth.
   chosen month it shows interviews fixed, interviews attended (ones he logged an
   outcome on) and reschedules made — each compared with the month before — plus a
   bar chart of how the meetings he logged turned out: **Not interested** vs
-  **Schedule another meeting**, and a table of every month of that year with a
+  **Schedule another meeting**, and a "Monthly" table of every month of that year with a
   yearly total (click a row to open that month). Each number is counted in the
   month it happened — booked, outcome logged, moved — using the viewer's
   timezone. The counters come from a small event log (`lib/stats.js`); the chart

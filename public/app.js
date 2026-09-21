@@ -1410,7 +1410,7 @@ async function renderAnalyticsTab() {
   // Every month of the chosen year, with a total; click a row to open that month.
   const num = (n) => `<td class="${n ? '' : 'zero'}">${n}</td>`;
   const sum = (key) => a.months.reduce((total, m) => total + m[key], 0);
-  $('#months-title').textContent = `Month by month — ${selYear}`;
+  $('#months-title').textContent = `Monthly ${selYear}`;
   $('#months-table').innerHTML =
     `<thead><tr><th>Month</th><th>Fixed</th><th>Attended</th><th>Rescheduled</th><th>Not interested</th><th>Another meeting</th></tr></thead><tbody>${a.months
       .map(
