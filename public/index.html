@@ -17,7 +17,6 @@
       <button class="side-item tab-btn active" data-tab="summary"><span class="side-item-icon">⌂</span><span>Summary</span></button>
       <button class="side-item tab-btn" data-tab="meetings"><span class="side-item-icon">▣</span><span>Meetings</span></button>
       <button class="side-item tab-btn" data-tab="pipeline"><span class="side-item-icon">◧</span><span>Pipeline</span></button>
-      <button class="side-item tab-btn" data-tab="templates"><span class="side-item-icon">✉</span><span>Templates</span></button>
       <button class="side-item tab-btn" data-tab="analytics"><span class="side-item-icon">▤</span><span>Analytics</span></button>
     </nav>
     <div class="side-section-label">Records</div>
@@ -58,7 +57,6 @@
         <button class="tab-btn" data-tab="meetings">Meetings</button>
         <button class="tab-btn" data-tab="pipeline">Pipeline</button>
         <button class="tab-btn" data-tab="contacts">Contacts</button>
-        <button class="tab-btn" data-tab="templates">Templates</button>
         <button class="tab-btn" data-tab="analytics">Analytics</button>
       </nav>
     </div>
@@ -151,31 +149,15 @@
             <label>Name <input name="name" required /></label>
             <label>Phone <input name="phone" placeholder="6591234567" /></label>
             <label>Email <input name="email" type="email" placeholder="client@example.com" /></label>
-            <label>Notes <textarea name="notes" rows="2"></textarea></label>
             <label><span>Schedule a Zoom meeting <span class="hint">(optional)</span></span>
               <input name="scheduled_at" type="datetime-local" />
             </label>
             <label id="cf-zoom-row" hidden>Zoom link <input name="zoom_link" placeholder="https://zoom.us/j/…" /></label>
             <div id="cf-zoom-hint" class="hint" hidden>A Zoom meeting is created automatically on the agent's connected account.</div>
+            <label>Notes <textarea name="notes" rows="2"></textarea></label>
             <button type="submit" id="cf-submit">Add contact</button>
           </form>
         </div>
-      </section>
-
-      <!-- TEMPLATES -->
-      <section id="tab-templates" class="tab-panel">
-        <div class="section-head"><h2>Email templates</h2>
-          <span class="hint">Use {{name}}, {{agent}} as placeholders.</span>
-        </div>
-        <div id="templates-list" class="meeting-list"></div>
-
-        <div class="section-head"><h2>New template</h2></div>
-        <form id="template-form" class="card form">
-          <label>Name <input name="name" required /></label>
-          <label>Subject <input name="subject" required /></label>
-          <label>Body (HTML ok) <textarea name="body" rows="5" required></textarea></label>
-          <button type="submit">Save template</button>
-        </form>
       </section>
 
       <!-- ANALYTICS -->

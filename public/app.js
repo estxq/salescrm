@@ -80,7 +80,7 @@ $$('.tab-btn').forEach((btn) => {
 // hits the same open API underneath — this is a decluttering convenience,
 // not access control (there's no real auth in this app).
 const ROLE_TABS = {
-  caller: ['summary', 'meetings', 'pipeline', 'templates', 'contacts'],
+  caller: ['summary', 'meetings', 'pipeline', 'contacts'],
   agent: ['summary', 'pipeline', 'meetings', 'analytics', 'contacts'],
 };
 
@@ -118,7 +118,9 @@ function applyRoleVisibility(role) {
 async function loadUsers() {
   const users = await api('/api/users');
   const sel = $('#current-user');
-  sel.innerHTML = users.map((u) => `<option value="${u.name}" data-role="${u.role}">${u.name} (${u.role})</option>`).join('');
+  sel.innerHTML = users
+    .map((u) => `<option value="${u.name}" data-role="${u.role}">${u.name.toLowerCase() === u.role ? u.name : `${u.name} (${u.role})`}</option>`)
+    .join('');
   const saved = localStorage.getItem('scheduleHubUser');
   if (saved && users.some((u) => u.name === saved)) sel.value = saved;
   $('#page-user-name').textContent = sel.value;
@@ -1118,54 +1120,6 @@ $('#import-leads-btn').addEventListener('click', async () => {
 });
 
 // =====================================================================
-// TEMPLATES
-// =====================================================================
-async function renderTemplatesTab() {
-  const templates = await api('/api/templates');
-  const el = $('#templates-list');
-  el.innerHTML = '';
-  if (!templates.length) el.innerHTML = '<div class="empty">No templates yet.</div>';
-  templates.forEach((t) => {
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.innerHTML = `
-      <strong>${t.name}</strong>
-      <div class="mnotes"><em>${t.subject}</em></div>
-      <div class="mnotes">${t.body}</div>
-    `;
-    const actions = document.createElement('div');
-    actions.className = 'mactions';
-    const delBtn = document.createElement('button');
-    delBtn.textContent = 'Delete';
-    delBtn.className = 'danger';
-    delBtn.addEventListener('click', async () => {
-      if (!confirm(`Delete template "${t.name}"?`)) return;
-      await api(`/api/templates/${t.id}`, { method: 'DELETE' });
-      renderTemplatesTab();
-    });
-    actions.appendChild(delBtn);
-    card.appendChild(actions);
-    el.appendChild(card);
-  });
-}
-
-$('#template-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const form = e.target;
-  await api('/api/templates', {
-    method: 'POST',
-    body: JSON.stringify({
-      name: form.name.value,
-      subject: form.subject.value,
-      body: form.body.value,
-      created_by: currentUser(),
-    }),
-  });
-  form.reset();
-  renderTemplatesTab();
-});
-
-// =====================================================================
 // ANALYTICS (dependency-free inline SVG charts)
 // =====================================================================
 function barChartSvg(items, { width = 480, height = 220, color = '#2563eb' } = {}) {
@@ -1222,7 +1176,6 @@ async function refresh() {
     if (active === 'tab-pipeline') await renderPipelineTab();
     if (active === 'tab-meetings') await renderMeetingsTab();
     if (active === 'tab-contacts') await renderContactsTab($('#contact-search').value);
-    if (active === 'tab-templates') await renderTemplatesTab();
     if (active === 'tab-analytics') await renderAnalyticsTab();
   } catch (err) {
     console.error(err);

@@ -10,8 +10,8 @@ external chat integration; it's a single shared source of truth.
 
 - **Role-based views**: switching "Acting as" between Caller / Agent
   changes which tabs are visible, matching what each role actually does —
-  Caller sees Summary, Meetings, Pipeline, Templates, Contacts and handles
-  calling, scheduling and emailing; Agent sees Summary, Meetings, Pipeline,
+  Caller sees Summary, Meetings, Pipeline, Contacts and handles
+  calling and scheduling; Agent sees Summary, Meetings, Pipeline,
   Analytics, Contacts and just attends the meetings. The "Connect Zoom"
   control only appears for Agent, since it's their own personal account —
   everyone else just sees a read-only connected/not-connected status. This
@@ -66,14 +66,11 @@ external chat integration; it's a single shared source of truth.
 - **Calendar export**: every scheduled meeting also gets a "Add to Google
   Calendar" link and a downloadable `.ics` file, for anyone who wants it in
   their own calendar app too.
-- **Templates + email open tracking**: reusable templates with `{{name}}` /
-  `{{company}}` / `{{agent}}` placeholders; each sent email embeds a 1x1
-  tracking pixel, and the deal timeline shows "(opened)" once it fires.
 - **Contacts**: search, add manually, edit, or import leads from a Google
   Sheet (dedupes by phone).
-- **Analytics**: contacts, open deals, won-this-month + revenue, win rate,
-  email open rate, a deals-by-stage bar chart, and a calls-per-day line
-  chart — plain inline SVG, no charting library or external CDN.
+- **Analytics**: contacts, open deals, won-this-month, win rate, and a
+  deals-by-stage bar chart — plain inline SVG, no charting library or
+  external CDN.
 
 ## Running it
 
@@ -83,9 +80,8 @@ npm start
 ```
 
 Then open http://localhost:3000 (or whatever `PORT` is set to). It works
-immediately with zero config: leads come from `data/leads.sample.json`,
-outbound emails are saved as `.html` files under `data/outbox/` instead of
-actually sent, and scheduling falls back to a manual Zoom-link field until
+immediately with zero config: leads come from `data/leads.sample.json`
+and scheduling falls back to a manual Zoom-link field until
 you connect a real Zoom account.
 
 ## Going live
@@ -98,8 +94,6 @@ Copy `.env.example` to `.env` and fill in:
   Client ID/Secret in `.env`, restart, then open `/auth/zoom` in the app and
   sign in with **the agent's own Zoom account** to connect it. See the
   comments in `.env.example` for exact scope names.
-- **Email**: any SMTP account (Gmail app password, SendGrid, Postmark, etc)
-  — set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `FROM_EMAIL`.
 - **Google Sheets**: make the leads sheet "anyone with the link can view",
   enable the Sheets API on a Google Cloud project, create an API key, set
   `GOOGLE_SHEETS_ID` + `GOOGLE_SHEETS_API_KEY`. Expected columns: Name,
@@ -135,7 +129,7 @@ dashboard once:
 3. **Set environment variables** in Project → Settings → Environment
    Variables: same ones as `.env.example` (`ZOOM_CLIENT_ID/SECRET`,
    `ZOOM_REDIRECT_URI` pointed at your real `https://your-app.vercel.app/auth/zoom/callback`,
-   `BASE_URL`, `SMTP_*`, `GOOGLE_SHEETS_*`, `REMINDER_WINDOW_MIN`, and a
+   `BASE_URL`, `GOOGLE_SHEETS_*`, `REMINDER_WINDOW_MIN`, and a
    random `CRON_SECRET`).
 4. **Reminders on the Hobby plan**: `vercel.json` schedules
    `/api/cron/reminders` once a day (`0 0 * * *`) — that's the finest
@@ -153,14 +147,14 @@ and an in-process 5-minute timer, exactly as before.
 ## Data model
 
 Plain JSON files under `data/` (`contacts.json`, `deals.json`,
-`activities.json`, `templates.json`, `users.json`, `notifications.json`,
+`activities.json`, `users.json`, `notifications.json`,
 `zoom_account.json`) via `lib/db.js`'s tiny generic collection store when
 running locally — good enough for one small team testing on a laptop. On
 Vercel the same collections live in Upstash Redis instead (see above),
 since serverless functions can't reliably write to disk.
 
 There's no login/password system — "Acting as" in the top bar is just a
-named identity picker (persisted in your browser) used to attribute calls,
-notes, and emails to a person. Add real auth before putting this on the
+named identity picker (persisted in your browser) used to attribute
+notes and bookings to a person. Add real auth before putting this on the
 open internet. The connected Zoom account is a single shared credential for
 the whole team (it's the agent's own account, not per-user).

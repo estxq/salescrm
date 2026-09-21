@@ -28,9 +28,7 @@ import {
   addNote,
   deleteDeal,
 } from './lib/deals.js';
-import { listActivities, logActivity, markEmailOpened, deleteActivitiesFor } from './lib/activities.js';
-import { listTemplates, getTemplate, createTemplate, updateTemplate, deleteTemplate } from './lib/templates.js';
-import { renderTemplate, newTrackingToken, sendEmail, TRACKING_PIXEL } from './lib/mailer.js';
+import { listActivities, logActivity, deleteActivitiesFor } from './lib/activities.js';
 import { fetchLeads } from './lib/sheets.js';
 import {
   notifyScheduled,
@@ -434,33 +432,6 @@ app.post('/api/deals/:id/note', async (req, res) => {
   res.json(deal);
 });
 
-app.post('/api/deals/:id/email', async (req, res) => {
-  const { template_id, made_by } = req.body;
-  const deal = await getDeal(req.params.id);
-  if (!deal) return res.status(404).json({ error: 'deal not found' });
-  const contact = await getContact(deal.contact_id);
-  if (!contact?.email) return res.status(400).json({ error: 'contact has no email address' });
-  const template = await getTemplate(template_id);
-  if (!template) return res.status(404).json({ error: 'template not found' });
-
-  const vars = { name: contact.name, company: contact.company, agent: made_by || 'the team' };
-  const subject = renderTemplate(template.subject, vars);
-  const html = renderTemplate(template.body, vars);
-  const token = newTrackingToken();
-
-  await sendEmail({ to: contact.email, subject, html, trackingToken: token });
-
-  const activity = await logActivity({
-    deal_id: deal.id,
-    contact_id: contact.id,
-    type: 'email',
-    summary: `${made_by || 'someone'} sent "${subject}" to ${contact.email}`,
-    made_by,
-    meta: { token, template_id: template.id, subject },
-  });
-  res.status(201).json(activity);
-});
-
 app.get('/api/deals/:id/activities', async (req, res) => res.json(await listActivities({ deal_id: req.params.id })));
 
 // ---------- Calendar export ----------
@@ -570,27 +541,6 @@ app.get('/api/summary/month', async (req, res) => {
   const combined = withContacts.concat(zoomOnly);
   combined.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
   res.json(combined);
-});
-
-// ---------- Templates ----------
-app.get('/api/templates', async (req, res) => res.json(await listTemplates()));
-app.post('/api/templates', async (req, res) => res.status(201).json(await createTemplate(req.body || {})));
-app.patch('/api/templates/:id', async (req, res) => {
-  const t = await updateTemplate(req.params.id, req.body || {});
-  if (!t) return res.status(404).json({ error: 'not found' });
-  res.json(t);
-});
-app.delete('/api/templates/:id', async (req, res) => {
-  await deleteTemplate(req.params.id);
-  res.sendStatus(204);
-});
-
-// ---------- Email open tracking pixel ----------
-app.get('/track/open/:token.png', async (req, res) => {
-  await markEmailOpened(req.params.token);
-  res.set('Content-Type', 'image/png');
-  res.set('Cache-Control', 'no-store');
-  res.send(TRACKING_PIXEL);
 });
 
 // ---------- Analytics ----------
