@@ -113,7 +113,7 @@ $$('.tab-btn').forEach((btn) => {
 // not access control (there's no real auth in this app).
 const ROLE_TABS = {
   caller: ['summary', 'meetings', 'contacts', 'pipeline'],
-  agent: ['summary', 'meetings', 'contacts', 'interviews', 'analytics'],
+  agent: ['summary', 'meetings', 'contacts', 'analytics'],
 };
 
 let currentRole = 'agent';
@@ -1338,19 +1338,13 @@ $('#import-leads-btn').addEventListener('click', async () => {
 // Short forms of the stage labels for the chart's x-axis, where full
 // phrases like "Scheduled a Meeting" would crowd narrow bars.
 // One colour per pipeline stage, running cool to warm as a deal progresses.
-const STAGE_COLORS = {
-  new: '#94a3b8',
-  contacted: '#60a5fa',
-  meeting_booked: '#6366f1',
-  proposal: '#8b5cf6',
-  won: '#22c55e',
-  lost: '#f87171',
-};
+// Bar colours for the two outcomes the agent can log.
+const OUTCOME_COLORS = { not_interested: '#f87171', follow_up: '#6366f1' };
 
-// The Agent's own numbers: interviews put in the diary, ones he actually
-// went to, and how many were moved. Counted by lib/stats.js.
-async function renderInterviewsTab() {
-  const s = await api('/api/summary/interview-stats');
+// The Agent's numbers: interviews put in the diary, ones he actually went to,
+// how many were moved, and how the ones he logged turned out (lib/stats.js).
+async function renderAnalyticsTab() {
+  const a = await api('/api/analytics');
   const card = (value, month, label, detail) => `
     <div class="stat-card">
       <div class="sval">${value}</div>
@@ -1358,30 +1352,19 @@ async function renderInterviewsTab() {
       <div class="sdetail">${detail}</div>
       <div class="ssub">${month} this month</div>
     </div>`;
-  $('#interview-cards').innerHTML =
-    card(s.fixed, s.this_month.fixed, 'Interviews fixed', 'Put in the diary') +
-    card(s.attended, s.this_month.attended, 'Interviews attended', 'Ones you went for and logged an outcome on') +
-    card(s.rescheduled, s.this_month.rescheduled, 'Reschedules made', 'Times a meeting was moved to a new time');
-}
+  $('#stat-cards').innerHTML =
+    card(a.fixed, a.this_month.fixed, 'Interviews fixed', 'Put in the diary') +
+    card(a.attended, a.this_month.attended, 'Interviews attended', 'Ones you went for and logged an outcome on') +
+    card(a.rescheduled, a.this_month.rescheduled, 'Reschedules made', 'Times a meeting was moved to a new time');
 
-async function renderAnalyticsTab() {
-  const a = await api('/api/analytics');
-
-  $('#stat-cards').innerHTML = `
-    <div class="stat-card"><div class="sval">${a.totalContacts}</div><div class="slabel">Total contacts</div></div>
-    <div class="stat-card"><div class="sval">${a.openDeals}</div><div class="slabel">Open deals</div></div>
-    <div class="stat-card"><div class="sval">${a.wonThisMonth}</div><div class="slabel">Won this month</div></div>
-    <div class="stat-card"><div class="sval">${a.winRate}%</div><div class="slabel">Win rate</div></div>
-  `;
-
-  const max = Math.max(1, ...a.dealsByStage.map((s) => s.count));
-  $('#stage-chart').innerHTML = `<div class="stage-bars">${a.dealsByStage
+  const max = Math.max(1, ...a.outcomes.map((o) => o.count));
+  $('#stage-chart').innerHTML = `<div class="stage-bars">${a.outcomes
     .map(
-      (s) => `
+      (o) => `
       <div class="stage-row">
-        <div class="stage-label">${s.label}</div>
-        <div class="stage-track"><div class="stage-fill" style="width:${(s.count / max) * 100}%;background:${STAGE_COLORS[s.stage] || '#94a3b8'}"></div></div>
-        <div class="stage-count${s.count ? '' : ' zero'}">${s.count}</div>
+        <div class="stage-label">${o.label}</div>
+        <div class="stage-track"><div class="stage-fill" style="width:${(o.count / max) * 100}%;background:${OUTCOME_COLORS[o.key] || '#94a3b8'}"></div></div>
+        <div class="stage-count${o.count ? '' : ' zero'}">${o.count}</div>
       </div>`
     )
     .join('')}</div>`;
@@ -1396,7 +1379,6 @@ async function refresh() {
     if (active === 'tab-meetings') await renderMeetingsTab();
     if (active === 'tab-contacts') await renderContactsTab($('#contact-search').value);
     if (active === 'tab-analytics') await renderAnalyticsTab();
-    if (active === 'tab-interviews') await renderInterviewsTab();
   } catch (err) {
     console.error(err);
   }

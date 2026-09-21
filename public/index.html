@@ -49,7 +49,6 @@
       <button class="side-item tab-btn" data-tab="meetings"><span class="side-item-icon">▣</span><span>Meetings</span></button>
       <button class="side-item tab-btn" data-tab="contacts"><span class="side-item-icon">☺</span><span>Contacts</span></button>
       <button class="side-item tab-btn" data-tab="pipeline"><span class="side-item-icon">◧</span><span>Pipeline</span></button>
-      <button class="side-item tab-btn" data-tab="interviews"><span class="side-item-icon">◔</span><span>Interviews</span></button>
       <button class="side-item tab-btn" data-tab="analytics"><span class="side-item-icon">▤</span><span>Analytics</span></button>
     </nav>
   </aside>
@@ -115,7 +114,6 @@
         <button class="tab-btn" data-tab="meetings">Meetings</button>
         <button class="tab-btn" data-tab="contacts">Contacts</button>
         <button class="tab-btn" data-tab="pipeline">Pipeline</button>
-        <button class="tab-btn" data-tab="interviews">Interviews</button>
         <button class="tab-btn" data-tab="analytics">Analytics</button>
       </nav>
     </div>
@@ -233,21 +231,16 @@
         </div>
       </section>
 
-      <!-- INTERVIEWS (Agent) -->
-      <section id="tab-interviews" class="tab-panel">
-        <div id="interview-cards" class="stat-cards interview-cards"></div>
-        <p class="hint">Interviews booked directly in Zoom are counted the first time this app sees them, so a meeting that came and went while nobody had the app open may be missed.</p>
-      </section>
-
       <!-- ANALYTICS -->
       <section id="tab-analytics" class="tab-panel">
-        <div id="stat-cards" class="stat-cards"></div>
+        <div id="stat-cards" class="stat-cards interview-cards"></div>
         <div class="charts-row">
           <div class="card chart-card">
-            <h3>Deals by stage</h3>
+            <h3>How the meetings turned out</h3>
             <div id="stage-chart"></div>
           </div>
         </div>
+        <p class="hint">Interviews booked directly in Zoom are counted the first time this app sees them, so a meeting that came and went while nobody had the app open may be missed.</p>
       </section>
     </main>
   </div>

@@ -57,7 +57,7 @@ import {
 } from './lib/notify.js';
 import { listNotifications, markRead, markDone, markAllRead, unreadCount, deleteNotificationsFor, deleteNotification, createNotification, resolveZoomRescheduleRequests, findOpenNotification, reviseNotification } from './lib/notifications.js';
 import { readZoomLog, syncZoomLog, setZoomOutcome, forgetZoomMeeting } from './lib/zoomlog.js';
-import { recordOnce, recordEvent, recordZoomMeetingsSeen, forgetMeeting, backfillDealRefs, interviewStats } from './lib/stats.js';
+import { recordOnce, recordEvent, recordZoomMeetingsSeen, forgetMeeting, backfillDealRefs, interviewStats, outcomeCounts } from './lib/stats.js';
 import { buildIcs, googleCalendarLink } from './lib/calendar.js';
 import { checkAndSendReminders } from './lib/reminders.js';
 import * as zoom from './lib/zoom.js';
@@ -819,16 +819,6 @@ app.get('/api/summary/reschedule-requests', async (req, res) => {
   res.json(items);
 });
 
-// The Agent's Interviews page: how many interviews were fixed, how many he
-// actually went to, and how many were rescheduled (see lib/stats.js).
-app.get('/api/summary/interview-stats', agentOnly, async (req, res) => {
-  const deals = await listDeals();
-  await backfillDealRefs(deals);
-  // Pick up any interviews booked straight in Zoom that we haven't counted yet.
-  await getZoomOnlyMeetings(new Set(deals.filter((d) => d.zoom_meeting_id).map((d) => d.zoom_meeting_id)));
-  res.json(await interviewStats());
-});
-
 app.get('/api/summary/activities', async (req, res) => {
   const limit = Number(req.query.limit) || 12;
   const activities = (await listActivities()).slice(0, limit);
@@ -898,32 +888,15 @@ app.get('/api/summary/month', async (req, res) => {
   res.json(combined);
 });
 
+// The Agent's Analytics page: how many interviews were fixed, how many he
+// actually went to, how many were rescheduled, and how the ones he logged turned
+// out (see lib/stats.js).
 app.get('/api/analytics', agentOnly, async (req, res) => {
   const deals = await listDeals();
-
-  const dealsByStage = STAGES.map((stage) => ({
-    stage,
-    label: STAGE_LABELS[stage],
-    count: deals.filter((d) => d.stage === stage).length,
-  }));
-
-  const won = deals.filter((d) => d.stage === 'won');
-  const lost = deals.filter((d) => d.stage === 'lost');
-  const winRate = won.length + lost.length ? Math.round((won.length / (won.length + lost.length)) * 100) : 0;
-
-  const now = new Date();
-  const wonThisMonth = won.filter((d) => {
-    const u = new Date(d.updated_at);
-    return u.getMonth() === now.getMonth() && u.getFullYear() === now.getFullYear();
-  });
-
-  res.json({
-    totalContacts: (await listContacts()).length,
-    openDeals: deals.filter((d) => !['won', 'lost'].includes(d.stage)).length,
-    wonThisMonth: wonThisMonth.length,
-    winRate,
-    dealsByStage,
-  });
+  await backfillDealRefs(deals);
+  // Pick up any interviews booked straight in Zoom that we haven't counted yet.
+  await getZoomOnlyMeetings(new Set(deals.filter((d) => d.zoom_meeting_id).map((d) => d.zoom_meeting_id)));
+  res.json({ ...(await interviewStats()), outcomes: await outcomeCounts() });
 });
 
 // ---------- In-app notifications (replaces the old WhatsApp pings) ----------

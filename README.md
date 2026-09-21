@@ -20,7 +20,7 @@ external chat integration; it's a single shared source of truth.
   on the server, not just by hiding tabs. Caller sees Summary, Meetings,
   Contacts, Pipeline and handles calling and scheduling (adding contacts,
   scheduling, rescheduling, deleting meetings); Agent sees Summary, Meetings,
-  Contacts, Interviews, Analytics (no Pipeline) and just attends the meetings (requesting
+  Contacts, Analytics (no Pipeline) and just attends the meetings (requesting
   reschedules, logging follow-ups, connecting Zoom). Calling the other role's
   endpoints returns 403. Names on notes, bookings and notifications come from
   the logged-in account, never from what the browser sends.
@@ -96,11 +96,14 @@ external chat integration; it's a single shared source of truth.
   another. It locks once the caller books, moves or deletes that meeting (or
   marks the notification done, for Zoom-only meetings). Meetings rows show a
   "Reschedule requested" tag and the logged outcome.
-- **Interviews page** (agent, in place of Pipeline): three counters — interviews
-  fixed, interviews attended (ones he logged an outcome on) and reschedules made
-  — each with a this-month figure. They come from a small event log
-  (`lib/stats.js`); interviews booked straight in Zoom are counted the first time
-  the app sees them (whenever either of you opens it, or the daily job).
+- **Analytics** (agent — his only stats page, no Pipeline): three counters —
+  interviews fixed, interviews attended (ones he logged an outcome on) and
+  reschedules made — each with a this-month figure, plus a bar chart of how the
+  meetings he logged turned out: **Not interested** vs **Schedule another
+  meeting**. The counters come from a small event log (`lib/stats.js`); the chart
+  counts what he currently has logged, so changing an outcome moves the bar.
+  Interviews booked straight in Zoom are counted the first time the app sees them
+  (whenever either of you opens it, or the daily job).
 - **Sending the client the details**: the caller sends the meeting details first
   ("Send details" — right after booking, in the Meetings list and the deal
   window), and the agent reconfirms nearer the date ("Send reminder", different
@@ -123,26 +126,6 @@ external chat integration; it's a single shared source of truth.
   `91234567`, `6591234567` and `+65 9123 4567` all count as the same number —
   and contacts that already share a number are tagged "Duplicate number".
   Leads can also be imported from a Google Sheet (deduped the same way).
-- **Analytics** (agent): contacts, open deals, won-this-month, win rate, and a
-  colour-coded deals-by-stage bar chart — plain HTML/CSS, no charting library
-  or external CDN.
-
-## Running it
-
-```bash
-npm install
-npm start
-```
-
-Then open http://localhost:3000 (or whatever `PORT` is set to). It works
-immediately with zero config: leads come from `data/leads.sample.json`
-and scheduling falls back to a manual Zoom-link field until
-you connect a real Zoom account.
-
-## Going live
-
-Copy `.env.example` to `.env` and fill in:
-
 - **Zoom**: create an OAuth app at marketplace.zoom.us (Develop → Build App
   → General App), set its redirect URL to match `ZOOM_REDIRECT_URI`, and
   grant it meeting read/write/update/delete + user-read scopes. Put the
