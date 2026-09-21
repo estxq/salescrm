@@ -73,9 +73,9 @@ external chat integration; it's a single shared source of truth.
   `91234567`, `6591234567` and `+65 9123 4567` all count as the same number —
   and contacts that already share a number are tagged "Duplicate number".
   Leads can also be imported from a Google Sheet (deduped the same way).
-- **Analytics**: contacts, open deals, won-this-month, win rate, and a
-  deals-by-stage bar chart — plain inline SVG, no charting library or
-  external CDN.
+- **Analytics** (agent): contacts, open deals, won-this-month, win rate, and a
+  colour-coded deals-by-stage bar chart — plain HTML/CSS, no charting library
+  or external CDN.
 
 ## Running it
 

@@ -51,11 +51,17 @@ function fmtWhen(iso) {
 // click-to-chat link (wa.me) prefilled with a confirmation message so
 // whoever's calling the client can send it in one tap instead of typing
 // the same thing out every time.
+//
+// WhatsApp needs the full international number. Local Singapore numbers are
+// saved as 8 digits ("93838015"), so add the 65 they're missing — without it
+// the link opens a chat with the wrong (invalid) number.
 function whatsappLink(phone, message) {
   if (!phone) return null;
-  const digits = phone.replace(/[^0-9]/g, '');
+  let digits = phone.replace(/[^0-9]/g, '');
+  if (digits.startsWith('0065')) digits = digits.slice(2);
+  if (digits.length === 8) digits = `65${digits}`;
   if (!digits) return null;
-  return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+  return `https://wa.me/${digits}${message ? `?text=${encodeURIComponent(message)}` : ''}`;
 }
 
 function confirmMeetingMessage(name, scheduledAt, zoomLink) {
@@ -1086,6 +1092,16 @@ async function renderContactsTab(q) {
         renderContactsTab($('#contact-search').value);
       });
     });
+    const chatLink = whatsappLink(c.phone);
+    if (chatLink) {
+      const textBtn = document.createElement('a');
+      textBtn.className = 'contact-text-btn';
+      textBtn.textContent = 'Text';
+      textBtn.href = chatLink;
+      textBtn.target = '_blank';
+      textBtn.rel = 'noopener';
+      actions.appendChild(textBtn);
+    }
     actions.appendChild(editBtn);
 
     card.appendChild(actions);
@@ -1186,35 +1202,16 @@ $('#import-leads-btn').addEventListener('click', async () => {
 // =====================================================================
 // ANALYTICS (dependency-free inline SVG charts)
 // =====================================================================
-function barChartSvg(items, { width = 480, height = 220, color = '#2563eb' } = {}) {
-  const max = Math.max(1, ...items.map((i) => i.value));
-  const barW = width / items.length;
-  const chartH = height - 36;
-  const bars = items
-    .map((item, i) => {
-      const h = (item.value / max) * (chartH - 10);
-      const x = i * barW + barW * 0.15;
-      const w = barW * 0.7;
-      const y = chartH - h;
-      return `
-        <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" fill="${color}"></rect>
-        <text x="${x + w / 2}" y="${chartH + 16}" font-size="10" text-anchor="middle" fill="#6b7280">${item.label}</text>
-        <text x="${x + w / 2}" y="${y - 4}" font-size="11" text-anchor="middle" fill="#1b1f24">${item.value}</text>
-      `;
-    })
-    .join('');
-  return `<svg viewBox="0 0 ${width} ${height}" width="100%" style="max-width:100%">${bars}</svg>`;
-}
-
 // Short forms of the stage labels for the chart's x-axis, where full
 // phrases like "Scheduled a Meeting" would crowd narrow bars.
-const STAGE_CHART_LABELS = {
-  new: 'Potential',
-  contacted: 'Interested',
-  meeting_booked: 'Meeting',
-  proposal: 'Post-meeting',
-  won: 'Won',
-  lost: 'Not interested',
+// One colour per pipeline stage, running cool to warm as a deal progresses.
+const STAGE_COLORS = {
+  new: '#94a3b8',
+  contacted: '#60a5fa',
+  meeting_booked: '#6366f1',
+  proposal: '#8b5cf6',
+  won: '#22c55e',
+  lost: '#f87171',
 };
 
 async function renderAnalyticsTab() {
@@ -1227,9 +1224,17 @@ async function renderAnalyticsTab() {
     <div class="stat-card"><div class="sval">${a.winRate}%</div><div class="slabel">Win rate</div></div>
   `;
 
-  $('#stage-chart').innerHTML = barChartSvg(
-    a.dealsByStage.map((s) => ({ label: STAGE_CHART_LABELS[s.stage] || s.label, value: s.count }))
-  );
+  const max = Math.max(1, ...a.dealsByStage.map((s) => s.count));
+  $('#stage-chart').innerHTML = `<div class="stage-bars">${a.dealsByStage
+    .map(
+      (s) => `
+      <div class="stage-row">
+        <div class="stage-label">${s.label}</div>
+        <div class="stage-track"><div class="stage-fill" style="width:${(s.count / max) * 100}%;background:${STAGE_COLORS[s.stage] || '#94a3b8'}"></div></div>
+        <div class="stage-count${s.count ? '' : ' zero'}">${s.count}</div>
+      </div>`
+    )
+    .join('')}</div>`;
 }
 
 // =====================================================================

@@ -328,6 +328,11 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 }
 .mactions button.primary { background: var(--accent); color: white; border-color: var(--accent); }
 .mactions button.danger { color: var(--bad); border-color: #fca5a5; }
+.mactions a.contact-text-btn {
+  font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 8px;
+  border: 1px solid #bfe6cc; background: #e6f7ec; color: #1a7d3f; text-decoration: none;
+}
+.mactions a.contact-text-btn:hover { background: #d3f0dc; }
 
 .inline-edit { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .inline-edit input { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); flex: 1; min-width: 100px; }
@@ -730,7 +735,15 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 .stat-card .slabel { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
 .charts-row { display: grid; grid-template-columns: 1fr; gap: 12px; }
-.chart-card h3 { font-size: 13px; margin: 0 0 10px; color: var(--muted); }
+.chart-card { max-width: 820px; }
+.chart-card h3 { font-size: 13px; margin: 0 0 14px; color: var(--muted); }
+.stage-bars { display: flex; flex-direction: column; gap: 12px; }
+.stage-row { display: grid; grid-template-columns: 150px 1fr 32px; align-items: center; gap: 14px; }
+.stage-label { font-size: 13px; }
+.stage-track { height: 14px; background: #eef0f4; border-radius: 999px; overflow: hidden; }
+.stage-fill { height: 100%; border-radius: 999px; min-width: 0; }
+.stage-count { font-size: 14px; font-weight: 700; text-align: right; }
+.stage-count.zero { color: var(--muted); font-weight: 500; }
 
 @media (max-width: 800px) {
   .board { grid-template-columns: repeat(3, minmax(160px, 1fr)); }
