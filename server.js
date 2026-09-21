@@ -139,7 +139,7 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 app.get('/api/auth/me', async (req, res) => {
-  const accountId = await sessionAccountId(req);
+  const accountId = await sessionAccountId(req, res);
   const account = accountId && (await getAccount(accountId));
   const team = account && (await getTeam(account.team_id));
   if (!account || !team) return res.status(401).json({ error: 'not_logged_in' });
@@ -169,7 +169,7 @@ async function checkAllTeamsReminders() {
 // request "inside" the caller's team, which is what keeps one team's contacts,
 // deals and Zoom link invisible to another.
 app.use(async (req, res, next) => {
-  const accountId = await sessionAccountId(req);
+  const accountId = await sessionAccountId(req, res);
   const account = accountId && (await getAccount(accountId));
   if (!account) {
     if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'not_logged_in' });

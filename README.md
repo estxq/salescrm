@@ -172,7 +172,7 @@ Passwords are hashed with scrypt (Node's built-in `crypto`, no extra
 dependency) and never leave the server. A login sets an `HttpOnly`,
 `SameSite=Lax` (and `Secure` over HTTPS) cookie signed with a secret — set
 `SESSION_SECRET` to choose your own, otherwise one is generated once and kept
-in the same store as the data. Sessions last 30 days; five wrong passwords
+in the same store as the data. Sessions last 90 days and renew themselves whenever you use the app (so you stay logged in on that browser); the app never stores your password — your browser's password manager can, and the login form is set up for that. Five wrong passwords
 lock an account for 15 minutes.
 
 Accounts and teams live in shared `accounts` / `teams` collections; everything

@@ -26,8 +26,8 @@
         <label class="auth-role"><input type="radio" name="role" value="caller" /> <span><strong>Caller</strong><small>Adds contacts, schedules meetings</small></span></label>
         <label class="auth-role"><input type="radio" name="role" value="agent" /> <span><strong>Agent</strong><small>Attends meetings, tracks results</small></span></label>
       </fieldset>
-      <label>Email <input name="email" type="email" autocomplete="email" /></label>
-      <label>Password <input name="password" type="password" autocomplete="current-password" /></label>
+      <label>Email <input id="auth-email" name="email" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" /></label>
+      <label>Password <input id="auth-password" name="password" type="password" autocomplete="current-password" /></label>
       <div id="auth-error" class="form-warning" hidden></div>
       <button type="submit" id="auth-submit">Log in</button>
     </form>

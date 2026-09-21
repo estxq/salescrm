@@ -1282,6 +1282,16 @@ $('#auth-form').addEventListener('submit', async (e) => {
       authMode === 'login'
         ? await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ email: payload.email, password: payload.password }) })
         : await api('/api/auth/signup', { method: 'POST', body: JSON.stringify({ ...payload, mode: authMode }) });
+    // Offer the browser's password manager the credentials (Chrome/Edge; other
+    // browsers pick the form up on their own from the autocomplete attributes).
+    // The password itself is never stored by this app — only by the browser.
+    if (window.PasswordCredential && navigator.credentials?.store) {
+      try {
+        await navigator.credentials.store(new PasswordCredential({ id: payload.email, password: payload.password, name: info.user.name }));
+      } catch {
+        // not allowed in this context — the form autofill route still works
+      }
+    }
     e.target.reset();
     await startApp(info);
   } catch (err) {
