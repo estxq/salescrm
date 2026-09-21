@@ -540,7 +540,8 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
   text-align: center;
 }
 .mt-actions .mt-whatsapp-btn:hover { background: #d3f0dc; }
-.mt-actions .zoom-delete-btn {
+.mt-actions .zoom-delete-btn,
+.mt-actions .crm-delete-btn {
   font-size: 11px;
   padding: 4px 10px;
   border-radius: 6px;
@@ -550,7 +551,8 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
   cursor: pointer;
   white-space: nowrap;
 }
-.mt-actions .zoom-delete-btn:hover { background: #fbd7d7; }
+.mt-actions .zoom-delete-btn:hover,
+.mt-actions .crm-delete-btn:hover { background: #fbd7d7; }
 .inline-resched,
 .inline-zoom-action {
   grid-column: 1 / -1;

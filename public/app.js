@@ -556,7 +556,12 @@ async function renderMeetingsTab() {
                       confirmMeetingMessage(d.contact.name, d.scheduled_at, d.zoom_link)
                     )}" target="_blank" rel="noopener" class="mt-whatsapp-btn">Text</a>`
                   : ''
-              }<button class="resched-btn" data-id="${d.id}">Reschedule</button>`
+              }${
+                currentRole === 'agent'
+                  ? ''
+                  : `<button class="resched-btn" data-id="${d.id}">Reschedule</button>
+               <button class="crm-delete-btn" data-id="${d.id}">Delete meeting</button>`
+              }`
         }</div>
       </div>`;
     })
@@ -568,7 +573,8 @@ async function renderMeetingsTab() {
         e.target.closest('.join-btn') ||
         e.target.closest('.resched-btn') ||
         e.target.closest('.inline-resched') ||
-        e.target.closest('.mt-whatsapp-btn')
+        e.target.closest('.mt-whatsapp-btn') ||
+        e.target.closest('.crm-delete-btn')
       )
         return;
       openDealModal(row.dataset.id);
@@ -657,6 +663,15 @@ async function renderMeetingsTab() {
         form.remove();
         alert('Logged.');
       });
+    });
+  });
+  $$('#meetings-body .crm-delete-btn').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const meeting = deals.find((d) => String(d.id) === btn.dataset.id);
+      if (!confirm(`Delete the meeting with ${meeting?.contact?.name || 'this contact'}? This cancels the Zoom meeting and removes it from the calendar. The contact stays.`)) return;
+      await api(`/api/deals/${btn.dataset.id}/meeting`, { method: 'DELETE', body: JSON.stringify({ changed_by: currentUser() }) });
+      renderMeetingsTab();
     });
   });
   $$('#meetings-body .zoom-delete-btn').forEach((btn) => {
