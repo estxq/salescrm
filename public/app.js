@@ -157,8 +157,9 @@ $('#global-search').addEventListener('keydown', (e) => {
 });
 
 // ---------- Google Calendar (the agent's own calendar, read-only) ----------
-// Its events sit next to the Zoom meetings on the Summary calendar, for both
-// roles (the caller works as the agent's PA). Only the agent can connect it.
+// The agent connects their own calendar once (only its owner can give that
+// permission), but the events are shown to the Caller only, on the Summary
+// calendar next to the Zoom meetings — the agent's own calendar stays Zoom-only.
 let GOOGLE_STATUS = { configured: false, connected: false, email: null, needs_reconnect: false };
 
 async function loadGoogleStatus() {
@@ -171,23 +172,22 @@ function renderGoogleStatus() {
   const isAgent = currentRole === 'agent';
   const g = GOOGLE_STATUS;
   if (!g.configured) {
-    el.innerHTML = isAgent
-      ? '<span class="zoom-pill zoom-off" title="Set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET to enable">Google Calendar not set up</span>'
-      : '';
+    el.innerHTML = ''; // nothing to offer until it's set up
   } else if (g.connected && g.needs_reconnect) {
     el.innerHTML = isAgent ? '<a href="/auth/google" class="zoom-pill zoom-connect">Reconnect Google Calendar</a>' : '';
   } else if (g.connected) {
-    el.innerHTML =
-      `<span class="zoom-pill zoom-on" title="Google Calendar is shown alongside the Zoom meetings">Google · ${escapeHtml(g.email || 'connected')}</span>` +
-      (isAgent ? '<button id="gcal-disconnect" class="zoom-disconnect">Disconnect</button>' : '');
+    el.innerHTML = isAgent
+      ? `<span class="zoom-pill zoom-on" title="Your Google Calendar is visible to the Caller only. It is not shown on your own calendar.">Shared with Caller · ${escapeHtml(g.email || 'Google')}</span><button id="gcal-disconnect" class="zoom-disconnect">Stop sharing</button>`
+      : `<span class="zoom-pill zoom-on" title="The Agent's Google Calendar, shown on the Summary calendar">Google · ${escapeHtml(g.email || 'connected')}</span>`;
     $('#gcal-disconnect')?.addEventListener('click', async () => {
-      if (!confirm('Disconnect Google Calendar? Its events will disappear from the calendar until you reconnect.')) return;
+      if (!confirm('Stop sharing your Google Calendar with the Caller? Its events will disappear from their calendar until you connect it again.')) return;
       await api('/api/google/disconnect', { method: 'POST' });
       await loadGoogleStatus();
-      if ($('#tab-summary').classList.contains('active')) renderSummaryTab();
     });
   } else {
-    el.innerHTML = isAgent ? '<a href="/auth/google" class="zoom-pill zoom-connect">Connect Google Calendar</a>' : '';
+    el.innerHTML = isAgent
+      ? '<a href="/auth/google" class="zoom-pill zoom-connect" title="Lets your Caller see your Google Calendar. It will not appear on your own calendar.">Share Google Calendar with Caller</a>'
+      : '';
   }
 }
 
@@ -521,7 +521,7 @@ async function renderCalendarCard() {
     }
     grid.innerHTML = cells;
     const legend = $('#calendar-legend');
-    const showLegend = GOOGLE_STATUS.connected && !GOOGLE_STATUS.needs_reconnect;
+    const showLegend = currentRole === 'caller' && GOOGLE_STATUS.connected && !GOOGLE_STATUS.needs_reconnect;
     legend.hidden = !showLegend;
     if (showLegend) {
       legend.innerHTML = '<span><i class="lg lg-zoom"></i>Zoom &amp; CRM meetings</span><span><i class="lg lg-google"></i>Google Calendar</span>';
@@ -1663,6 +1663,6 @@ async function startApp(info) {
   await startApp(info);
   if (zoomResult === 'connected') alert('Zoom connected.');
   else if (zoomResult === 'error') alert('Zoom connection failed — check the server logs.');
-  if (googleResult === 'connected') alert('Google Calendar connected.');
+  if (googleResult === 'connected') alert('Google Calendar connected. Your Caller can now see it — it will not appear on your own calendar.');
   else if (googleResult === 'error') alert('Google Calendar connection failed — check the server logs.');
 })();

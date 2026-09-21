@@ -843,8 +843,8 @@ app.get('/api/summary/activities', async (req, res) => {
 // The agent's Google Calendar events for a stretch of time, ready to sit next to
 // the Zoom meetings. Anything that is really one of the Zoom meetings already
 // listed (a Google event with a Zoom link, e.g. from Zoom's Calendar add-on) is
-// dropped so it isn't shown twice. Both roles see the same thing — the caller
-// works as the agent's PA and is meant to see the whole calendar.
+// dropped so it isn't shown twice. Only the caller gets these: the agent wants a
+// clean calendar of Zoom meetings, so nothing from Google is ever sent to him.
 async function googleCalendarItems({ from, to, knownZoomIds }) {
   const events = await gcal.listEvents({ from, to });
   return events
@@ -884,11 +884,14 @@ app.get('/api/summary/month', async (req, res) => {
       everyDeal.map((d) => (d.zoom_link || '').match(ZOOM_ID_IN_LINK)?.[1]).filter(Boolean)
     )
   );
-  const google = await googleCalendarItems({
-    from: new Date(monthStart.getTime() - 86400000),
-    to: new Date(monthEnd.getTime() + 86400000),
-    knownZoomIds,
-  });
+  const google =
+    req.user.role === 'caller'
+      ? await googleCalendarItems({
+          from: new Date(monthStart.getTime() - 86400000),
+          to: new Date(monthEnd.getTime() + 86400000),
+          knownZoomIds,
+        })
+      : [];
 
   const combined = withContacts.concat(zoomOnly, history, google);
   combined.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));

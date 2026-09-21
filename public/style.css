@@ -92,7 +92,7 @@ body {
   border-bottom: 1px solid var(--border);
   gap: 12px;
 }
-.topbar-search { flex: 1 1 auto; min-width: 0; }
+.topbar-search { flex: 1 1 auto; min-width: 120px; }
 .topbar-search input {
   width: 100%;
   max-width: 320px;
@@ -215,7 +215,7 @@ body {
   text-decoration: none;
   display: inline-block;
   white-space: nowrap;
-  max-width: 220px;
+  max-width: 300px;
   overflow: hidden;
   text-overflow: ellipsis;
   vertical-align: middle;
