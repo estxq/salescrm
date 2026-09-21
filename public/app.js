@@ -1341,21 +1341,49 @@ $('#import-leads-btn').addEventListener('click', async () => {
 // Bar colours for the two outcomes the agent can log.
 const OUTCOME_COLORS = { not_interested: '#f87171', follow_up: '#6366f1' };
 
-// The Agent's numbers: interviews put in the diary, ones he actually went to,
-// how many were moved, and how the ones he logged turned out (lib/stats.js).
+// The Agent's numbers, one month at a time: interviews put in the diary, ones he
+// actually went to, how many were moved, and how the ones he logged turned out
+// (lib/stats.js). Everything is counted in the month it happened.
+let analyticsMonth = null; // 'YYYY-MM'; null = this month
+
+const monthName = (key, opts = { month: 'long', year: 'numeric' }) => {
+  const [y, m] = key.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString(undefined, opts);
+};
+const thisMonthKey = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+const shiftMonthKey = (key, delta) => {
+  const [y, m] = key.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+
 async function renderAnalyticsTab() {
-  const a = await api('/api/analytics');
-  const card = (value, month, label, detail) => `
+  const params = new URLSearchParams({ tz: String(new Date().getTimezoneOffset()) });
+  if (analyticsMonth) params.set('month', analyticsMonth);
+  const a = await api(`/api/analytics?${params}`);
+  analyticsMonth = a.month;
+
+  $('#analytics-month-label').textContent = monthName(a.month);
+  $('#an-next').disabled = a.month >= a.current_month; // nothing to show in the future
+  $('#an-today').hidden = a.month === a.current_month;
+
+  const prevName = monthName(shiftMonthKey(a.month, -1), { month: 'short' });
+  const versus = (now, before) =>
+    now === before ? `Same as ${prevName}` : `${now > before ? '▲' : '▼'} ${Math.abs(now - before)} vs ${prevName}`;
+  const card = (label, detail, now, before) => `
     <div class="stat-card">
-      <div class="sval">${value}</div>
+      <div class="sval">${now}</div>
       <div class="slabel">${label}</div>
       <div class="sdetail">${detail}</div>
-      <div class="ssub">${month} this month</div>
+      <div class="ssub">${versus(now, before)}</div>
     </div>`;
   $('#stat-cards').innerHTML =
-    card(a.fixed, a.this_month.fixed, 'Interviews fixed', 'Put in the diary') +
-    card(a.attended, a.this_month.attended, 'Interviews attended', 'Ones you went for and logged an outcome on') +
-    card(a.rescheduled, a.this_month.rescheduled, 'Reschedules made', 'Times a meeting was moved to a new time');
+    card('Interviews fixed', 'Put in the diary', a.fixed, a.previous.fixed) +
+    card('Interviews attended', 'Ones you went for and logged an outcome on', a.attended, a.previous.attended) +
+    card('Reschedules made', 'Times a meeting was moved to a new time', a.rescheduled, a.previous.rescheduled);
 
   const max = Math.max(1, ...a.outcomes.map((o) => o.count));
   $('#stage-chart').innerHTML = `<div class="stage-bars">${a.outcomes
@@ -1368,7 +1396,35 @@ async function renderAnalyticsTab() {
       </div>`
     )
     .join('')}</div>`;
+
+  // Overview of the last twelve months; click a row to look at that month.
+  const num = (n) => `<td class="${n ? '' : 'zero'}">${n}</td>`;
+  $('#months-table').innerHTML =
+    `<thead><tr><th>Month</th><th>Fixed</th><th>Attended</th><th>Rescheduled</th><th>Not interested</th><th>Another meeting</th></tr></thead><tbody>${a.months
+      .map(
+        (m) =>
+          `<tr data-month="${m.month}" class="${m.month === a.month ? 'selected' : ''}"><th>${monthName(m.month)}</th>${num(m.fixed)}${num(m.attended)}${num(m.rescheduled)}${num(m.not_interested)}${num(m.follow_up)}</tr>`
+      )
+      .join('')}</tbody>`;
+  $$('#months-table tbody tr').forEach((row) =>
+    row.addEventListener('click', () => {
+      analyticsMonth = row.dataset.month;
+      renderAnalyticsTab();
+    })
+  );
 }
+$('#an-prev').addEventListener('click', () => {
+  analyticsMonth = shiftMonthKey(analyticsMonth || thisMonthKey(), -1);
+  renderAnalyticsTab();
+});
+$('#an-next').addEventListener('click', () => {
+  analyticsMonth = shiftMonthKey(analyticsMonth || thisMonthKey(), 1);
+  renderAnalyticsTab();
+});
+$('#an-today').addEventListener('click', () => {
+  analyticsMonth = null;
+  renderAnalyticsTab();
+});
 
 // =====================================================================
 async function refresh() {

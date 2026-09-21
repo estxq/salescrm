@@ -233,6 +233,14 @@
 
       <!-- ANALYTICS -->
       <section id="tab-analytics" class="tab-panel">
+        <div class="analytics-head">
+          <h2 id="analytics-month-label">…</h2>
+          <div class="schedule-nav">
+            <button id="an-prev" aria-label="Previous month">‹</button>
+            <button id="an-today" class="calendar-nav-today">This month</button>
+            <button id="an-next" aria-label="Next month">›</button>
+          </div>
+        </div>
         <div id="stat-cards" class="stat-cards interview-cards"></div>
         <div class="charts-row">
           <div class="card chart-card">
@@ -240,7 +248,13 @@
             <div id="stage-chart"></div>
           </div>
         </div>
-        <p class="hint">Interviews booked directly in Zoom are counted the first time this app sees them, so a meeting that came and went while nobody had the app open may be missed.</p>
+        <div class="card months-card">
+          <h3>Month by month</h3>
+          <div class="table-scroll">
+            <table id="months-table" class="months-table"></table>
+          </div>
+        </div>
+        <p class="hint">Each number is counted in the month it happened: an interview is fixed when it is booked, attended when an outcome is logged, and a reschedule when the meeting is moved. Interviews booked directly in Zoom are counted the first time this app sees them, so a meeting that came and went while nobody had the app open may be missed.</p>
       </section>
     </main>
   </div>

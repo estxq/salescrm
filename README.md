@@ -96,14 +96,18 @@ external chat integration; it's a single shared source of truth.
   another. It locks once the caller books, moves or deletes that meeting (or
   marks the notification done, for Zoom-only meetings). Meetings rows show a
   "Reschedule requested" tag and the logged outcome.
-- **Analytics** (agent — his only stats page, no Pipeline): three counters —
+- **Analytics** (agent — his only stats page, no Pipeline), **one month at a
+  time**: step through the months with ‹ ›. For the chosen month it shows
   interviews fixed, interviews attended (ones he logged an outcome on) and
-  reschedules made — each with a this-month figure, plus a bar chart of how the
-  meetings he logged turned out: **Not interested** vs **Schedule another
-  meeting**. The counters come from a small event log (`lib/stats.js`); the chart
-  counts what he currently has logged, so changing an outcome moves the bar.
-  Interviews booked straight in Zoom are counted the first time the app sees them
-  (whenever either of you opens it, or the daily job).
+  reschedules made — each compared with the month before — plus a bar chart of how
+  the meetings he logged turned out: **Not interested** vs **Schedule another
+  meeting**, and a month-by-month table for the last twelve months (click a row to
+  open that month). Each number is counted in the month it happened — booked,
+  outcome logged, moved — using the viewer's timezone. The counters come from a
+  small event log (`lib/stats.js`); the chart counts what he currently has logged,
+  so changing an outcome moves the bar. Interviews booked straight in Zoom are
+  counted the first time the app sees them (whenever either of you opens it, or
+  the daily job).
 - **Sending the client the details**: the caller sends the meeting details first
   ("Send details" — right after booking, in the Meetings list and the deal
   window), and the agent reconfirms nearer the date ("Send reminder", different

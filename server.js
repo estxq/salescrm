@@ -57,7 +57,7 @@ import {
 } from './lib/notify.js';
 import { listNotifications, markRead, markDone, markAllRead, unreadCount, deleteNotificationsFor, deleteNotification, createNotification, resolveZoomRescheduleRequests, findOpenNotification, reviseNotification } from './lib/notifications.js';
 import { readZoomLog, syncZoomLog, setZoomOutcome, forgetZoomMeeting } from './lib/zoomlog.js';
-import { recordOnce, recordEvent, recordZoomMeetingsSeen, forgetMeeting, backfillDealRefs, interviewStats, outcomeCounts } from './lib/stats.js';
+import { recordOnce, recordEvent, recordZoomMeetingsSeen, forgetMeeting, backfillDealRefs, monthlyAnalytics } from './lib/stats.js';
 import { buildIcs, googleCalendarLink } from './lib/calendar.js';
 import { checkAndSendReminders } from './lib/reminders.js';
 import * as zoom from './lib/zoom.js';
@@ -888,15 +888,15 @@ app.get('/api/summary/month', async (req, res) => {
   res.json(combined);
 });
 
-// The Agent's Analytics page: how many interviews were fixed, how many he
-// actually went to, how many were rescheduled, and how the ones he logged turned
-// out (see lib/stats.js).
+// The Agent's Analytics page, one month at a time: interviews fixed, attended and
+// rescheduled, and how the ones he logged turned out (see lib/stats.js). `tz` is
+// the browser's timezone offset so a month starts and ends where the viewer thinks it does.
 app.get('/api/analytics', agentOnly, async (req, res) => {
   const deals = await listDeals();
   await backfillDealRefs(deals);
   // Pick up any interviews booked straight in Zoom that we haven't counted yet.
   await getZoomOnlyMeetings(new Set(deals.filter((d) => d.zoom_meeting_id).map((d) => d.zoom_meeting_id)));
-  res.json({ ...(await interviewStats()), outcomes: await outcomeCounts() });
+  res.json(await monthlyAnalytics({ month: req.query.month, tz: Number(req.query.tz) || 0 }));
 });
 
 // ---------- In-app notifications (replaces the old WhatsApp pings) ----------
