@@ -233,7 +233,9 @@ screen to join or start another team.
 **Deleting your account** (account menu → Delete my account, confirmed with
 your password) removes only your login. The team's contacts, meetings, Zoom
 connection and invite code stay, so someone holding the code can take the
-free seat — that's also how a teammate is replaced.
+free seat — that's also how a teammate is replaced. If you were in a team,
+deleting also counts as leaving it: your teammate gets the same notification
+as an explicit "Leave team" would give, so they know the seat is open.
 
 Not included: email verification and password reset (there's no email
 service), so keep your password safe.

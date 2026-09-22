@@ -258,7 +258,15 @@ app.post('/api/auth/leave', async (req, res) => {
 // Delete the login itself (asks for the password again).
 app.delete('/api/auth/account', async (req, res) => {
   const account = await sessionAccount(req, res);
-  await deleteAccount(account, req.body?.password);
+  const left = await deleteAccount(account, req.body?.password);
+  if (left) {
+    await withTeam(left.teamId, () =>
+      createNotification({
+        type: 'member_left',
+        message: `${left.name} (${left.role === 'agent' ? 'Agent' : 'Caller'}) deleted their account and left the team. Share the invite code to fill the seat.`,
+      })
+    );
+  }
   endSession(req, res);
   res.json({ ok: true });
 });
