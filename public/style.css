@@ -926,7 +926,20 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 
 /* ---------- Analytics: year + month dropdowns ---------- */
 .analytics-picker { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.analytics-picker select { font: inherit; font-size: 13px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); cursor: pointer; }
+.analytics-picker select {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 34px 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+}
 .an-today { font: inherit; font-size: 12px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--card); color: var(--muted); cursor: pointer; white-space: nowrap; }
 .an-today[hidden] { display: none; }
 .months-table tfoot th, .months-table tfoot td { border-top: 2px solid var(--border); border-bottom: none; font-weight: 700; }
