@@ -1588,12 +1588,17 @@ function renderAccount() {
   $('#am-name').textContent = `${user.name} (${ROLE_LABEL[user.role]})`;
   $('#am-email').textContent = user.email;
   $('#am-team').textContent = team.name;
-  $('#am-invite').hidden = !invite;
-  const showBanner = Boolean(invite) && sessionStorage.getItem('inviteBannerDismissed') !== '1';
+  // The code is permanent, so the account menu always shows it — only the
+  // wording (and the top banner nudging you to send it) depends on whether a
+  // seat happens to be open right now.
+  $('#am-invite').hidden = false;
+  $('#am-invite-blurb').textContent = invite.role
+    ? `Invite your ${ROLE_LABEL[invite.role]}. They join with this code:`
+    : "Your team's invite code — keep it, in case you ever need to bring in a replacement:";
+  $('#am-invite-code').textContent = invite.code;
+  const showBanner = Boolean(invite.role) && sessionStorage.getItem('inviteBannerDismissed') !== '1';
   $('#invite-banner').hidden = !showBanner;
-  if (invite) {
-    $('#am-invite-role').textContent = ROLE_LABEL[invite.role];
-    $('#am-invite-code').textContent = invite.code;
+  if (invite.role) {
     $('#ib-role').textContent = ROLE_LABEL[invite.role];
     $('#ib-code').textContent = invite.code;
   }
