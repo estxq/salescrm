@@ -20,6 +20,9 @@
       <button type="button" class="auth-tab" data-auth-mode="create">Create a team</button>
       <button type="button" class="auth-tab" data-auth-mode="join">Join a team</button>
     </div>
+    <div id="auth-forgot-head" class="auth-forgot-head" hidden>
+      <button type="button" id="auth-forgot-back">‹ Back to log in</button>
+    </div>
     <p id="auth-blurb" class="auth-blurb"></p>
     <form id="auth-form" class="form auth-form" novalidate>
       <label data-auth-field="name">Your name <input name="name" autocomplete="name" /></label>
@@ -32,7 +35,12 @@
       </fieldset>
       <label data-auth-field="email">Email <input id="auth-email" name="email" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" /></label>
       <label data-auth-field="password">Password <input id="auth-password" name="password" type="password" autocomplete="current-password" /></label>
+      <div data-auth-field="login-forgot" class="auth-forgot-link"><button type="button" id="auth-forgot-open">Forgot password?</button></div>
+      <label data-auth-field="reset_code">Code from your teammate <input name="reset_code" placeholder="123 456" inputmode="numeric" autocomplete="one-time-code" /></label>
+      <label data-auth-field="new_password">New password <input name="new_password" type="password" autocomplete="new-password" /></label>
+      <div data-auth-field="resend" class="auth-forgot-link"><button type="button" id="auth-forgot-resend">Didn't get a code? Send another</button></div>
       <div id="auth-error" class="form-warning" hidden></div>
+      <div id="auth-notice" class="form-notice" hidden></div>
       <button type="submit" id="auth-submit">Log in</button>
     </form>
   </div>

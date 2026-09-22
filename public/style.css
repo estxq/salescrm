@@ -187,6 +187,7 @@ body {
 }
 .auth-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
 .auth-tabs { display: flex; gap: 4px; padding: 3px; background: var(--bg); border-radius: 10px; margin-bottom: 14px; }
+.auth-tabs[hidden] { display: none !important; }
 .auth-tab {
   flex: 1; font: inherit; font-size: 13px; padding: 7px 8px; border: none; border-radius: 8px;
   background: transparent; color: var(--muted); cursor: pointer;
@@ -205,6 +206,18 @@ body {
 .auth-role span { display: flex; flex-direction: column; gap: 1px; }
 .auth-role small { color: var(--muted); font-size: 12px; }
 .auth-role:has(input:checked) { border-color: var(--accent); background: var(--accent-weak); }
+
+/* ---------- Forgot password ---------- */
+.auth-forgot-head { margin-bottom: 12px; }
+.auth-forgot-head button {
+  font: inherit; font-size: 13px; color: var(--muted); background: none; border: none; padding: 0; cursor: pointer;
+}
+.auth-forgot-head button:hover { color: var(--text); }
+.auth-forgot-link { margin-top: -4px; }
+.form.auth-form .auth-forgot-link button {
+  align-self: auto; font: inherit; font-size: 12px; color: var(--accent); background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline;
+}
+.form-notice { background: #eaf0fe; border: 1px solid #b6c9f5; color: #1e3a8a; border-radius: 8px; padding: 8px 12px; font-size: 12px; line-height: 1.4; }
 
 .topbar-right { display: flex; align-items: center; gap: 14px; }
 

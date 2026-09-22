@@ -1469,7 +1469,7 @@ const AUTH_MODES = {
   login: {
     blurb: 'Log in to your team.',
     submit: 'Log in',
-    fields: ['email', 'password'],
+    fields: ['email', 'password', 'login-forgot'],
   },
   create: {
     blurb: 'Start a team for you and your teammate. A team is one Caller and one Agent — your data stays private to it.',
@@ -1487,11 +1487,47 @@ let authMode = 'login';
 // same screen then only asks which team, not who they are.
 let teamlessUser = null;
 
+// "Forgot password" has no email to send to — the code goes to whoever else
+// is on the team, as a notification, for them to relay out of band. Two
+// phases within the same 'forgot' auth mode: ask for the email, then ask for
+// the code + a new password.
+const FORGOT_PHASES = {
+  request: {
+    blurb: "Enter your email. If someone else on your team is signed in, they'll get a code in their notifications to pass on to you.",
+    submit: 'Send code',
+    fields: ['email'],
+  },
+  verify: {
+    blurb: 'Ask your teammate for the code sitting in their notifications, then choose a new password.',
+    submit: 'Reset password',
+    fields: ['email', 'reset_code', 'new_password', 'resend'],
+  },
+};
+let forgotPhase = 'request';
+
+function renderForgotPhase() {
+  const cfg = FORGOT_PHASES[forgotPhase];
+  $$('#auth-form [data-auth-field]').forEach((el) => {
+    el.hidden = !cfg.fields.includes(el.dataset.authField);
+  });
+  $('#auth-blurb').textContent = cfg.blurb;
+  $('#auth-submit').textContent = cfg.submit;
+  $('#auth-error').hidden = true;
+}
+
 function setAuthMode(mode) {
   authMode = mode;
+  $('.auth-tabs').hidden = mode === 'forgot';
+  $('#auth-forgot-head').hidden = mode !== 'forgot';
+  $('#auth-notice').hidden = true;
+  if (mode === 'forgot') {
+    forgotPhase = 'request';
+    renderForgotPhase();
+    return;
+  }
   const cfg = AUTH_MODES[mode];
   $$('.auth-tab').forEach((t) => t.classList.toggle('active', t.dataset.authMode === mode));
-  const fields = teamlessUser ? cfg.fields.filter((f) => f !== 'email' && f !== 'password') : cfg.fields;
+  const fields = teamlessUser ? cfg.fields.filter((f) => !['email', 'password', 'login-forgot'].includes(f)) : cfg.fields;
   $$('#auth-form [data-auth-field]').forEach((el) => {
     el.hidden = !fields.includes(el.dataset.authField);
   });
@@ -1528,9 +1564,68 @@ $('#auth-logout').addEventListener('click', async () => {
 });
 
 $$('.auth-tab').forEach((tab) => tab.addEventListener('click', () => setAuthMode(tab.dataset.authMode)));
+$('#auth-forgot-open').addEventListener('click', () => setAuthMode('forgot'));
+$('#auth-forgot-back').addEventListener('click', () => setAuthMode('login'));
+
+// Same request every time, whichever phase triggers it — the server always
+// answers the same way regardless of what's actually true, so there's nothing
+// here to branch on besides success/failure of the request itself.
+async function sendResetCode(email) {
+  const res = await api('/api/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) });
+  const notice = $('#auth-notice');
+  notice.textContent = res.message;
+  notice.hidden = false;
+  return res;
+}
+
+$('#auth-forgot-resend').addEventListener('click', async (e) => {
+  const errorEl = $('#auth-error');
+  errorEl.hidden = true;
+  e.target.disabled = true;
+  try {
+    await sendResetCode($('#auth-form [name=email]').value);
+  } catch {
+    errorEl.textContent = 'Something went wrong — try again.';
+    errorEl.hidden = false;
+  } finally {
+    e.target.disabled = false;
+  }
+});
+
+async function handleForgotSubmit(form) {
+  const errorEl = $('#auth-error');
+  const submit = $('#auth-submit');
+  errorEl.hidden = true;
+  submit.disabled = true;
+  try {
+    if (forgotPhase === 'request') {
+      await sendResetCode(form.email.value);
+      forgotPhase = 'verify';
+      renderForgotPhase();
+      $('#auth-notice').hidden = false; // renderForgotPhase doesn't touch it — keep the message up
+      $('#auth-form [name=reset_code]').focus();
+    } else {
+      const info = await api('/api/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({ email: form.email.value, code: form.reset_code.value, new_password: form.new_password.value }),
+      });
+      form.reset();
+      forgotPhase = 'request';
+      if (!info.team) return showTeamPicker(info);
+      teamlessUser = null;
+      await startApp(info);
+    }
+  } catch (err) {
+    errorEl.textContent = err.status === 401 || err.status === 400 || err.status === 409 || err.status === 429 ? err.message : 'Something went wrong — try again.';
+    errorEl.hidden = false;
+  } finally {
+    submit.disabled = false;
+  }
+}
 
 $('#auth-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (authMode === 'forgot') return handleForgotSubmit(e.target);
   const errorEl = $('#auth-error');
   const submit = $('#auth-submit');
   const form = new FormData(e.target);

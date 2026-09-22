@@ -237,5 +237,17 @@ free seat — that's also how a teammate is replaced. If you were in a team,
 deleting also counts as leaving it: your teammate gets the same notification
 as an explicit "Leave team" would give, so they know the seat is open.
 
-Not included: email verification and password reset (there's no email
-service), so keep your password safe.
+**Forgot password**, with no email service: the "Forgot password?" link on the
+login screen sends a 6-digit code not to an inbox, but to whoever else is on
+the account's team, as an in-app notification (`type: 'password_reset'`) —
+they relay it out of band (WhatsApp, in person), the same trust everything
+else here already runs on. The code expires after 15 minutes, locks out after
+6 wrong tries, and re-requesting it before it's used revises the same
+notification instead of piling up more. Every response is worded identically
+whether or not the email matches anything, so the flow can't be used to check
+who has an account. **Limitation:** a solo account, or one whose only
+teammate is also locked out, has no one to relay a code — they need whoever
+manages the deployment.
+
+Not included: email verification (there's no email service), so double-check
+your address when signing up.

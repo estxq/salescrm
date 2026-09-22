@@ -21,6 +21,10 @@ import {
   getTeam,
   sessionInfo,
   forEachTeam,
+  requestPasswordReset,
+  resetPassword,
+  setResetNotificationId,
+  formatResetCode,
 } from './lib/accounts.js';
 import { startSession, endSession, sessionAccountId, setOAuthState, takeOAuthState } from './lib/session.js';
 import { withTeam } from './lib/context.js';
@@ -217,6 +221,35 @@ app.post('/api/auth/login', async (req, res) => {
 app.post('/api/auth/logout', (req, res) => {
   endSession(req, res);
   res.json({ ok: true });
+});
+
+// Forgot password, step 1: no email in this app, so the code goes to whoever
+// else is in the account's team as an in-app notification, for them to relay
+// out of band. Always answers the same generic way — it never says whether the
+// email matched an account, let alone whether that account has a teammate.
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const result = await requestPasswordReset(req.body?.email);
+  if (result.notified) {
+    await withTeam(result.teamId, async () => {
+      const message = `${result.accountName} forgot their password. Give them this code (valid ${15} minutes): ${formatResetCode(result.code)}`;
+      let notif = result.priorNotificationId ? await reviseNotification(result.priorNotificationId, { message }) : null;
+      if (!notif) notif = await createNotification({ type: 'password_reset', message, from_name: result.accountName });
+      await setResetNotificationId(result.accountId, notif.id);
+    });
+  }
+  res.json({
+    ok: true,
+    message: "If that email belongs to an account with a teammate already signed in, they now have a code to pass on to you.",
+  });
+});
+
+// Forgot password, step 2: the code plus a new password.
+app.post('/api/auth/reset-password', async (req, res) => {
+  const result = await resetPassword(req.body || {});
+  if (result.notificationId && result.account.team_id) {
+    await withTeam(result.account.team_id, () => markDone(result.notificationId));
+  }
+  await respondWithSession(req, res, result);
 });
 
 // The logged-in account, or a 401. These account routes sit above the gate
