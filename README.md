@@ -42,8 +42,15 @@ external chat integration; it's a single shared source of truth.
   calendar is read; cancelled and declined events are skipped; a Google event
   that is really one of the Zoom meetings (e.g. made by Zoom's Calendar add-on)
   isn't shown twice. Needs `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — setup
-  steps in `.env.example`. If Google stops renewing the login the agent's top bar
-  shows "Reconnect Google Calendar" and the rest of the calendar carries on.
+  steps in `.env.example`. Two distinct ways this can go wrong show up
+  identically to the agent as **"Reconnect Google Calendar"** (and to the
+  caller as a plain "ask the Agent" notice, since only the account's owner can
+  fix it): Google refusing to renew the login (revoked, or a test-mode app's
+  weekly expiry), and a stored login that simply predates the calendar scope
+  being added to the consent screen — connected and showing an email, but the
+  events call itself gets refused, which otherwise looks exactly like an empty
+  calendar with no explanation. Reconnecting (a fresh consent screen) fixes
+  both. The rest of the calendar carries on regardless.
 - **Meetings that have happened stay on the calendar** (greyed out, and in
   Meetings → Past) instead of disappearing. That covers a meeting whose deal
   moved on after an outcome was logged, an earlier meeting replaced when another

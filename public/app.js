@@ -174,7 +174,12 @@ function renderGoogleStatus() {
   if (!g.configured) {
     el.innerHTML = ''; // nothing to offer until it's set up
   } else if (g.connected && g.needs_reconnect) {
-    el.innerHTML = isAgent ? '<a href="/auth/google" class="zoom-pill zoom-connect">Reconnect Google Calendar</a>' : '';
+    // Only the agent can fix this (it's their Google login), but the caller is
+    // the one who'll actually notice events have gone missing from the
+    // calendar — so they get told why, even though they can't act on it.
+    el.innerHTML = isAgent
+      ? '<a href="/auth/google" class="zoom-pill zoom-connect" title="Google stopped renewing the connection, or the calendar permission wasn\'t granted — reconnecting fixes both.">Reconnect Google Calendar</a>'
+      : '<span class="zoom-pill zoom-off" title="Ask the Agent to reconnect it from their account.">Google Calendar disconnected — ask the Agent</span>';
   } else if (g.connected) {
     el.innerHTML = isAgent
       ? `<span class="zoom-pill zoom-on" title="Your Google Calendar is visible to the Caller only. It is not shown on your own calendar.">Shared with Caller · ${escapeHtml(g.email || 'Google')}</span><button id="gcal-disconnect" class="zoom-disconnect">Stop sharing</button>`
