@@ -251,3 +251,16 @@ manages the deployment.
 
 Not included: email verification (there's no email service), so double-check
 your address when signing up.
+
+**Notification times are pinned to Singapore time** (`lib/tz.js`). Every date
+the app shows lives in one of two places: rendered fresh in the viewer's own
+browser (the calendar, Meetings, the deal window — always correct, since it's
+the viewer's own local time), or baked once into a notification's text at the
+moment the server writes it (a reschedule request, "moved the meeting to…").
+That second kind can't reformat itself per viewer, so it has to pick one
+timezone and stick to it — Node defaults to UTC on Vercel regardless of where
+the team actually is, which without this would silently shift every such
+message by the gap between UTC and Singapore time (8 hours) once deployed,
+while looking fine in local testing on a machine already set to roughly the
+right zone. If this app is ever run for a team outside Singapore, change
+`TEAM_TIMEZONE` in `lib/tz.js` to match.

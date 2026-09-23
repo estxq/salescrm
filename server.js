@@ -63,6 +63,7 @@ import { listNotifications, markRead, markDone, markAllRead, unreadCount, delete
 import { readZoomLog, syncZoomLog, setZoomOutcome, forgetZoomMeeting } from './lib/zoomlog.js';
 import { recordOnce, recordEvent, recordZoomMeetingsSeen, forgetMeeting, backfillDealRefs, monthlyAnalytics } from './lib/stats.js';
 import { buildIcs, googleCalendarLink } from './lib/calendar.js';
+import { formatWhen } from './lib/tz.js';
 import { checkAndSendReminders } from './lib/reminders.js';
 import * as zoom from './lib/zoom.js';
 import * as gcal from './lib/gcal.js';
@@ -631,7 +632,7 @@ app.delete('/api/deals/:id/request-reschedule', agentOnly, async (req, res) => {
 app.post('/api/zoom-meetings/:meetingId/request-reschedule', agentOnly, async (req, res) => {
   const { remark, requested_by, topic, scheduled_at } = req.body;
   if (!remark) return res.status(400).json({ error: 'remark required' });
-  const when = scheduled_at ? new Date(scheduled_at).toLocaleString() : 'the scheduled time';
+  const when = scheduled_at ? formatWhen(scheduled_at) : 'the scheduled time';
   const meta = { zoom_meeting_id: req.params.meetingId, topic: topic || null, scheduled_at: scheduled_at || null, remark };
   const open = await findOpenNotification({ type: 'reschedule_requested', zoom_meeting_id: req.params.meetingId });
   if (open) {
@@ -677,7 +678,7 @@ app.post('/api/zoom-meetings/:meetingId/outcome', agentOnly, async (req, res) =>
   const { outcome, note, made_by, topic, scheduled_at } = req.body;
   const config = FOLLOWUP_OUTCOMES[outcome];
   if (!config) return res.status(400).json({ error: 'invalid outcome' });
-  const when = scheduled_at ? new Date(scheduled_at).toLocaleString() : 'the scheduled time';
+  const when = scheduled_at ? formatWhen(scheduled_at) : 'the scheduled time';
   const meta = { zoom_meeting_id: req.params.meetingId, outcome, note: note || '', topic: topic || null, scheduled_at: scheduled_at || null };
   const noteText = note ? ` Notes: ${note}` : '';
   // Logging again while the caller hasn't acted on it replaces the earlier entry.
@@ -715,7 +716,7 @@ app.post('/api/zoom-meetings/:meetingId/reschedule', callerOnly, async (req, res
     type: 'rescheduled',
     deal_id: null,
     contact_id: null,
-    message: `${changed_by || 'Someone'} moved "${topic || 'a Zoom meeting'}" to ${new Date(scheduled_at).toLocaleString()}.`,
+    message: `${changed_by || 'Someone'} moved "${topic || 'a Zoom meeting'}" to ${formatWhen(scheduled_at)}.`,
     from_name: changed_by,
   });
   await resolveZoomRescheduleRequests(req.params.meetingId);
@@ -737,7 +738,7 @@ app.delete('/api/zoom-meetings/:meetingId', callerOnly, async (req, res) => {
     deal_id: null,
     contact_id: null,
     message: `${deleted_by || 'Someone'} deleted "${topic || 'a Zoom meeting'}"${
-      scheduled_at ? ` (${new Date(scheduled_at).toLocaleString()})` : ''
+      scheduled_at ? ` (${formatWhen(scheduled_at)})` : ''
     } from Zoom.`,
     from_name: deleted_by,
   });
