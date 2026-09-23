@@ -660,7 +660,10 @@ async function renderMeetingsTab() {
               : `<button class="resched-btn" data-id="${d.id}">Reschedule</button>
                <button class="zoom-delete-btn" data-id="${d.id}">Delete meeting</button>`
             : `${
-                d.contact?.phone
+                // Not interested closed the deal and cancelled the real Zoom meeting —
+                // sending "confirming our meeting" to someone who said they aren't
+                // interested would be actively wrong, so no Send button for it.
+                d.contact?.phone && d.stage !== 'lost'
                   ? `<a href="${whatsappLink(
                       d.contact.phone,
                       confirmMeetingMessage(d.contact.name, d.scheduled_at, d.zoom_link)
@@ -979,7 +982,7 @@ async function openDealModal(id, opts = {}) {
         : ''
     }
     ${
-      contact.phone && deal.scheduled_at
+      contact.phone && deal.scheduled_at && deal.stage !== 'lost'
         ? `<a href="${whatsappLink(
             contact.phone,
             confirmMeetingMessage(contact.name, deal.scheduled_at, deal.zoom_link)
@@ -1223,7 +1226,7 @@ async function renderContactsTab(q) {
       ieDeleteBtn.addEventListener('click', guardClick(ieDeleteBtn, async () => {
         if (
           !confirm(
-            `Delete ${c.name}? This removes the contact and their deal history, and cancels any real Zoom meeting they have booked. This can't be undone.`
+            `Delete ${c.name}? This cancels any real Zoom meeting they have booked right away — that part can't be undone. The contact and their deal history can be restored afterwards from Contacts → Deleted.`
           )
         )
           return;
@@ -1256,8 +1259,69 @@ function setContactsView(view) {
   $$('.contacts-subtab').forEach((b) => b.classList.toggle('active', b.dataset.contactsView === view));
   $('#contacts-view-list').hidden = view !== 'list';
   $('#contacts-view-new').hidden = view !== 'new';
+  $('#contacts-view-deleted').hidden = view !== 'deleted';
+  if (view === 'deleted') renderDeletedContactsTab();
 }
-$$('.contacts-subtab').forEach((b) => b.addEventListener('click', () => setContactsView(b.dataset.contactsView)));
+$$('.contacts-subtab[data-contacts-view]').forEach((b) => b.addEventListener('click', () => setContactsView(b.dataset.contactsView)));
+// "Deleted" isn't Caller-only like "New contact" — restoring a mis-deleted
+// contact should work for whichever role notices, same as deleting one does.
+$('#contacts-deleted-btn').addEventListener('click', () => setContactsView('deleted'));
+$('#contacts-deleted-back').addEventListener('click', () => setContactsView('list'));
+
+// Every soft-deleted contact, each with Restore (brings the contact + its
+// deal history back — any real Zoom meeting stays cancelled, see the delete
+// confirm's wording) and Delete forever (the old, actually-permanent removal,
+// gated behind having deleted it first).
+async function renderDeletedContactsTab() {
+  const el = $('#contacts-deleted-list');
+  el.innerHTML = 'Loading…';
+  const contacts = await api('/api/contacts/deleted');
+  if (!contacts.length) {
+    el.innerHTML = '<div class="empty">Nothing in here.</div>';
+    return;
+  }
+  el.innerHTML = '';
+  contacts.forEach((c) => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <strong>${escapeHtml(c.name)}</strong>
+      <div class="mnotes">${escapeHtml([c.phone, c.email].filter(Boolean).join(' · ') || 'no phone/email on file')}</div>
+      <div class="mnotes">Deleted by ${escapeHtml(c.deleted_by || 'someone')}, ${fmtWhen(c.deleted_at)}</div>
+    `;
+    const actions = document.createElement('div');
+    actions.className = 'mactions';
+    const restoreBtn = document.createElement('button');
+    restoreBtn.className = 'primary';
+    restoreBtn.textContent = 'Restore';
+    restoreBtn.addEventListener(
+      'click',
+      guardClick(restoreBtn, async () => {
+        const res = await api(`/api/contacts/${c.id}/restore`, { method: 'POST' });
+        if (res.deals_restored) {
+          alert(
+            `${c.name} is back, with ${res.deals_restored} deal${res.deals_restored > 1 ? 's' : ''}. Any that had a booked meeting will need a fresh one — the Zoom meeting itself couldn't be brought back.`
+          );
+        }
+        renderDeletedContactsTab();
+      })
+    );
+    const purgeBtn = document.createElement('button');
+    purgeBtn.className = 'danger';
+    purgeBtn.textContent = 'Delete forever';
+    purgeBtn.addEventListener(
+      'click',
+      guardClick(purgeBtn, async () => {
+        if (!confirm(`Permanently delete ${c.name}? This erases the contact, their deals and their history for good — there's no undo from here.`)) return;
+        await api(`/api/contacts/${c.id}/forever`, { method: 'DELETE' });
+        renderDeletedContactsTab();
+      })
+    );
+    actions.append(restoreBtn, purgeBtn);
+    card.appendChild(actions);
+    el.appendChild(card);
+  });
+}
 
 // Warn about a duplicate phone number as it's typed (the server enforces it too).
 function showPhoneWarning(existing) {

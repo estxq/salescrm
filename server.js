@@ -29,7 +29,17 @@ import {
 import { startSession, endSession, sessionAccountId, setOAuthState, takeOAuthState } from './lib/session.js';
 import { withTeam } from './lib/context.js';
 import crypto from 'node:crypto';
-import { listContacts, getContact, findContactByPhone, createContact, updateContact, deleteContact } from './lib/contacts.js';
+import {
+  listContacts,
+  getContact,
+  findContactByPhone,
+  createContact,
+  updateContact,
+  deleteContact,
+  restoreContact,
+  purgeContact,
+  listDeletedContacts,
+} from './lib/contacts.js';
 import {
   STAGES,
   STAGE_LABELS,
@@ -48,6 +58,8 @@ import {
   updateDealValue,
   addNote,
   deleteDeal,
+  hideDealsForContact,
+  restoreDealsForContact,
 } from './lib/deals.js';
 import { listActivities, logActivity, deleteActivitiesFor } from './lib/activities.js';
 import { fetchLeads } from './lib/sheets.js';
@@ -430,6 +442,10 @@ app.post('/api/contacts', callerOnly, async (req, res) => {
   res.status(201).json({ contact, deal, meeting_error });
 });
 
+// Must be registered before '/api/contacts/:id' below, or Express would match
+// "deleted" as an :id and this route would never be reached.
+app.get('/api/contacts/deleted', async (req, res) => res.json(await listDeletedContacts()));
+
 app.get('/api/contacts/:id', async (req, res) => {
   const contact = await getContact(req.params.id);
   if (!contact) return res.status(404).json({ error: 'not found' });
@@ -446,9 +462,13 @@ app.patch('/api/contacts/:id', async (req, res) => {
   res.json(contact);
 });
 
-// Cleanup tool for bad imports/test data — removes the contact along with
-// every deal, activity, and notification tied to it, and frees up any real
-// Zoom meeting those deals were holding.
+// Deletes a contact — softly. It disappears from the Contacts list, Pipeline
+// and Meetings along with its deals, and any real Zoom meetings those deals
+// held are cancelled right away (that part can't be undone — Arron's actual
+// calendar has to reflect it immediately). Everything else (the contact
+// record, its deals, notes and activity history) stays and can be brought
+// back from Contacts → Deleted. Open to both roles, same as it always was —
+// removing a bad record isn't Caller-only the way adding one is.
 app.delete('/api/contacts/:id', async (req, res) => {
   const contact = await getContact(req.params.id);
   if (!contact) return res.status(404).json({ error: 'not found' });
@@ -456,13 +476,9 @@ app.delete('/api/contacts/:id', async (req, res) => {
   for (const deal of deals) {
     await cleanupZoomMeeting(deal);
     await forgetMeeting(deal.stat_ref);
-    await deleteDeal(deal.id);
-    await deleteActivitiesFor({ deal_id: deal.id });
-    await deleteNotificationsFor({ deal_id: deal.id });
   }
-  await deleteActivitiesFor({ contact_id: contact.id });
-  await deleteNotificationsFor({ contact_id: contact.id });
-  await deleteContact(contact.id);
+  await hideDealsForContact(contact.id);
+  await deleteContact(contact.id, req.body?.deleted_by);
   // Only worth a heads-up if it wiped out meetings on someone's calendar. Sent
   // after the cascade, with no deal/contact ids, so the cascade can't eat it.
   const cancelled = deals.filter((d) => d.scheduled_at).length;
@@ -472,11 +488,37 @@ app.delete('/api/contacts/:id', async (req, res) => {
       type: 'contact_deleted',
       deal_id: null,
       contact_id: null,
-      message: `${by || 'Someone'} deleted ${contact.name}, which cancelled ${cancelled} booked meeting${cancelled > 1 ? 's' : ''}.`,
+      message: `${by || 'Someone'} deleted ${contact.name}, which cancelled ${cancelled} booked meeting${cancelled > 1 ? 's' : ''}. Restorable from Contacts → Deleted.`,
       from_name: by,
     });
   }
   res.json({ deleted: true, contact_id: contact.id, deals_removed: deals.length });
+});
+
+// The Deleted view and its two actions: bring a contact back, or remove it
+// (and its deals/activities/notifications) for good. Open to both roles,
+// matching the delete route itself.
+app.post('/api/contacts/:id/restore', async (req, res) => {
+  const contact = await getContact(req.params.id);
+  if (!contact?.deleted_at) return res.status(404).json({ error: 'not found' });
+  const restoredDeals = await restoreDealsForContact(contact.id);
+  const restored = await restoreContact(contact.id);
+  res.json({ ...restored, deals_restored: restoredDeals });
+});
+
+app.delete('/api/contacts/:id/forever', async (req, res) => {
+  const contact = await getContact(req.params.id);
+  if (!contact?.deleted_at) return res.status(404).json({ error: 'Only an already-deleted contact can be removed for good.' });
+  const deals = await listDeals({ contact_id: contact.id, includeDeleted: true });
+  for (const deal of deals) {
+    await deleteDeal(deal.id);
+    await deleteActivitiesFor({ deal_id: deal.id });
+    await deleteNotificationsFor({ deal_id: deal.id });
+  }
+  await deleteActivitiesFor({ contact_id: contact.id });
+  await deleteNotificationsFor({ contact_id: contact.id });
+  await purgeContact(contact.id);
+  res.json({ purged: true, contact_id: contact.id });
 });
 
 // ---------- Deals / pipeline ----------
@@ -506,7 +548,14 @@ app.get('/api/meetings', async (req, res) => {
     return when === 'upcoming' ? t > now : when === 'past' ? t <= now : true;
   };
   const allDeals = (await listDeals()).filter((d) => d.scheduled_at);
-  const withContacts = await Promise.all(allDeals.filter(inRange).map(async (d) => ({ ...d, contact: await getContact(d.contact_id) })));
+  const withContacts = await Promise.all(
+    allDeals
+      .filter(inRange)
+      // A lost deal's real Zoom meeting is already cancelled — there's nothing
+      // left to attend, even if its stored time technically hasn't passed yet.
+      .filter((d) => when !== 'upcoming' || d.stage !== 'lost')
+      .map(async (d) => ({ ...d, contact: await getContact(d.contact_id) }))
+  );
   const linkedIds = new Set(allDeals.filter((d) => d.zoom_meeting_id).map((d) => d.zoom_meeting_id));
   const zoomOnly = (await getZoomOnlyMeetings(linkedIds)).filter(inRange);
   const history = (await pastMeetingsOf(await listDeals())).filter(inRange);

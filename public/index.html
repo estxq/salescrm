@@ -208,10 +208,20 @@
             <h2>Contacts</h2>
             <div class="row-actions">
               <input id="contact-search" placeholder="Search contacts…" />
+              <button id="contacts-deleted-btn" class="contacts-subtab contacts-deleted-btn">Deleted</button>
               <button id="import-leads-btn" class="add-contact-control">Import leads from sheet</button>
             </div>
           </div>
           <div id="contacts-list" class="meeting-list"></div>
+        </div>
+
+        <div id="contacts-view-deleted" hidden>
+          <div class="section-head">
+            <h2>Deleted contacts</h2>
+            <button id="contacts-deleted-back" class="contacts-subtab">‹ Back to contacts</button>
+          </div>
+          <p class="hint">Deleting a contact cancels any real Zoom meeting it had right away — that part can't be undone. Everything else (the contact, its deal history and notes) can be brought back.</p>
+          <div id="contacts-deleted-list" class="meeting-list"></div>
         </div>
 
         <div id="contacts-view-new" hidden>

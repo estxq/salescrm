@@ -96,7 +96,12 @@ external chat integration; it's a single shared source of truth.
   went with just two choices — **Not interested** (→ Lost, and the Zoom meeting
   is removed) or **Schedule another meeting** (→ back to Contacted, for the
   caller to book) — plus an optional note. It works the same on Zoom-only
-  meetings.
+  meetings. Marking Not interested cancels the real Zoom meeting immediately
+  and clears the deal's own copy of that link, so nothing in the CRM keeps
+  offering a "Join" or "Send" for a meeting that's actually gone — it also
+  stops counting as "upcoming" even if its stored time technically hasn't
+  passed, though it stays visible everywhere else as a record of what was
+  scheduled.
 - **Changing your mind (agent)**: a reschedule request or a logged outcome can
   be edited — or the request withdrawn — for as long as the caller hasn't acted
   on it. Editing revises the caller's existing notification instead of adding
@@ -144,6 +149,17 @@ external chat integration; it's a single shared source of truth.
   `91234567`, `6591234567` and `+65 9123 4567` all count as the same number —
   and contacts that already share a number are tagged "Duplicate number".
   Leads can also be imported from a Google Sheet (deduped the same way).
+  **Deleting a contact is undoable**: it's a soft delete — the contact,
+  its deals, notes and activity history all stay, just hidden from the
+  normal views, and can be brought back any time from Contacts → Deleted
+  (open to both roles, like deleting itself already was). "Delete forever"
+  in that same view is the one truly permanent option, and only works on
+  something already soft-deleted. The one part that can't be undone is any
+  real Zoom meeting the contact had — that's cancelled immediately on
+  delete, same as before, so Arron's actual calendar is never left showing
+  a meeting the CRM has hidden. Restoring a deal that had one drops it back
+  to Contacted with no live link, ready to rebook fresh (a new Zoom
+  meeting means a new join link — the old one really is gone).
 - **Zoom**: create an OAuth app at marketplace.zoom.us (Develop → Build App
   → General App), set its redirect URL to match `ZOOM_REDIRECT_URI`, and
   grant it meeting read/write/update/delete + user-read scopes. Put the
