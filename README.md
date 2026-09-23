@@ -102,7 +102,12 @@ external chat integration; it's a single shared source of truth.
   on it. Editing revises the caller's existing notification instead of adding
   another. It locks once the caller books, moves or deletes that meeting (or
   marks the notification done, for Zoom-only meetings). Meetings rows show a
-  "Reschedule requested" tag and the logged outcome.
+  "Reschedule requested" tag and the logged outcome, aligned on the same line.
+  Logging **Not interested** closes the deal, which also hides the Caller's
+  Schedule/Reschedule controls (below) — so a still-open reschedule request
+  is cleared at the same moment, rather than left pointing at a control that
+  just disappeared. **Schedule another meeting** keeps the deal open and
+  leaves a genuinely still-open request alone.
 - **Analytics** (agent — his only stats page, no Pipeline), **one month at a
   time**, chosen with **Year** and **Month** dropdowns (it opens on the current
   month; a new year appears in the list by itself, and earlier years and months
@@ -161,6 +166,12 @@ silently — if you see a card stuck loading with no banner, that's a real
 bug worth reporting, not just the server being temporarily restarted. Each
 Summary card also fails independently with its own "retry" link, so one
 slow or broken endpoint can't freeze the other.
+
+Every button that fires an API call (schedule, reschedule, delete, log an
+outcome, save a remark, import leads, mark a notification done…) disables
+itself for the length of that call, so a fast double-click — or clicking
+again because the first click felt slow — can't submit the same action
+twice (two Zoom meetings booked, two duplicate notifications, and so on).
 
 ## Deploying to Vercel
 

@@ -1,6 +1,24 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+// A click that fires an API call must not accept a second click before the
+// first finishes — a fast double-click (or clicking again because the first
+// one felt slow over a bad connection) would otherwise submit the same
+// action twice: two Zoom meetings booked, two "moved the meeting to…"
+// notifications, and so on. This disables the button for the call's
+// duration; re-enabling a button already removed from the DOM is harmless.
+function guardClick(el, handler) {
+  return async (e) => {
+    if (!el || el.disabled) return;
+    el.disabled = true;
+    try {
+      await handler(e);
+    } finally {
+      el.disabled = false;
+    }
+  };
+}
+
 // The periodic poll replaces whole sections' innerHTML — without this, it
 // would silently wipe out an inline edit form (reschedule, contact edit)
 // the moment 20s pass, discarding whatever the user was mid-typing.
@@ -184,11 +202,11 @@ function renderGoogleStatus() {
     el.innerHTML = isAgent
       ? `<span class="zoom-pill zoom-on" title="Your Google Calendar is visible to the Caller only. It is not shown on your own calendar.">Shared with Caller · ${escapeHtml(g.email || 'Google')}</span><button id="gcal-disconnect" class="zoom-disconnect">Stop sharing</button>`
       : `<span class="zoom-pill zoom-on" title="The Agent's Google Calendar, shown on the Summary calendar">Google · ${escapeHtml(g.email || 'connected')}</span>`;
-    $('#gcal-disconnect')?.addEventListener('click', async () => {
+    $('#gcal-disconnect')?.addEventListener('click', guardClick($('#gcal-disconnect'), async () => {
       if (!confirm('Stop sharing your Google Calendar with the Caller? Its events will disappear from their calendar until you connect it again.')) return;
       await api('/api/google/disconnect', { method: 'POST' });
       await loadGoogleStatus();
-    });
+    }));
   } else {
     el.innerHTML = isAgent
       ? '<a href="/auth/google" class="zoom-pill zoom-connect" title="Lets your Caller see your Google Calendar. It will not appear on your own calendar.">Share Google Calendar with Caller</a>'
@@ -278,7 +296,7 @@ async function renderNotifDropdown() {
     )
     .join('');
   $$('#notif-list .notif-item').forEach((item) => {
-    item.addEventListener('click', async (e) => {
+    item.addEventListener('click', guardClick(item, async (e) => {
       if (e.target.closest('.notif-done-btn')) return;
       await api(`/api/notifications/${item.dataset.id}/read`, { method: 'POST' });
       $('#notif-dropdown').hidden = true;
@@ -289,16 +307,16 @@ async function renderNotifDropdown() {
       } else if (item.dataset.type === 'reschedule_requested') {
         activateTab('meetings'); // Zoom-only meeting: no deal to open, the Reschedule button lives here
       }
-    });
+    }));
   });
   // Marking done doesn't delete it — it moves to the Old tab as history.
   $$('#notif-list .notif-done-btn').forEach((btn) => {
-    btn.addEventListener('click', async (e) => {
+    btn.addEventListener('click', guardClick(btn, async (e) => {
       e.stopPropagation();
       await api(`/api/notifications/${btn.dataset.id}/done`, { method: 'POST' });
       refreshNotifCount();
       renderNotifDropdown();
-    });
+    }));
   });
 }
 
@@ -318,12 +336,12 @@ $('#notif-bell').addEventListener('click', async () => {
   }
 });
 
-$('#notif-mark-all').addEventListener('click', async (e) => {
+$('#notif-mark-all').addEventListener('click', guardClick($('#notif-mark-all'), async (e) => {
   e.stopPropagation();
   await api('/api/notifications/read-all', { method: 'POST', body: JSON.stringify({ role: currentRole }) });
   renderNotifDropdown();
   refreshNotifCount();
-});
+}));
 
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.notif-wrap')) $('#notif-dropdown').hidden = true;
@@ -391,11 +409,12 @@ async function renderRequestsCard() {
       const r = items[Number(row.dataset.idx)];
       row.querySelector('.request-open')?.addEventListener('click', () => openDealModal(r.deal_id));
       row.querySelector('.request-meetings')?.addEventListener('click', () => activateTab('meetings'));
-      row.querySelector('.request-done')?.addEventListener('click', async () => {
+      const doneBtn = row.querySelector('.request-done');
+      doneBtn?.addEventListener('click', guardClick(doneBtn, async () => {
         await api(`/api/notifications/${r.notification_id}/done`, { method: 'POST' });
         renderRequestsCard();
         refreshNotifCount();
-      });
+      }));
     });
   });
 }
@@ -700,7 +719,8 @@ async function renderMeetingsTab() {
         ev.stopPropagation();
         close();
       });
-      form.querySelector('.iza-withdraw')?.addEventListener('click', async (ev) => {
+      const withdrawBtn = form.querySelector('.iza-withdraw');
+      withdrawBtn?.addEventListener('click', guardClick(withdrawBtn, async (ev) => {
         ev.stopPropagation();
         await api(`/api/zoom-meetings/${zoomId}/request-reschedule`, {
           method: 'DELETE',
@@ -708,8 +728,9 @@ async function renderMeetingsTab() {
         });
         close();
         renderMeetingsTab();
-      });
-      form.querySelector('.iza-save').addEventListener('click', async (ev) => {
+      }));
+      const izaSaveBtn = form.querySelector('.iza-save');
+      izaSaveBtn.addEventListener('click', guardClick(izaSaveBtn, async (ev) => {
         ev.stopPropagation();
         const remark = form.querySelector('.iza-remark').value.trim();
         if (!remark) return;
@@ -724,7 +745,7 @@ async function renderMeetingsTab() {
         });
         close();
         renderMeetingsTab();
-      });
+      }));
     });
   });
   $$('#meetings-body .zoom-outcome-btn').forEach((btn) => {
@@ -751,7 +772,8 @@ async function renderMeetingsTab() {
         inlineFormClosed();
         form.remove();
       });
-      form.querySelector('.iza-save').addEventListener('click', async (ev) => {
+      const izaOutcomeSaveBtn = form.querySelector('.iza-save');
+      izaOutcomeSaveBtn.addEventListener('click', guardClick(izaOutcomeSaveBtn, async (ev) => {
         ev.stopPropagation();
         const outcome = form.querySelector('.iza-outcome').value;
         const note = form.querySelector('.iza-note').value.trim();
@@ -769,20 +791,20 @@ async function renderMeetingsTab() {
         inlineFormClosed();
         form.remove();
         renderMeetingsTab();
-      });
+      }));
     });
   });
   $$('#meetings-body .crm-delete-btn').forEach((btn) => {
-    btn.addEventListener('click', async (e) => {
+    btn.addEventListener('click', guardClick(btn, async (e) => {
       e.stopPropagation();
       const meeting = deals.find((d) => String(d.id) === btn.dataset.id);
       if (!confirm(`Delete the meeting with ${meeting?.contact?.name || 'this contact'}? This cancels the Zoom meeting and removes it from the calendar. The contact stays.`)) return;
       await api(`/api/deals/${btn.dataset.id}/meeting`, { method: 'DELETE', body: JSON.stringify({ changed_by: currentUser() }) });
       renderMeetingsTab();
-    });
+    }));
   });
   $$('#meetings-body .zoom-delete-btn').forEach((btn) => {
-    btn.addEventListener('click', async (e) => {
+    btn.addEventListener('click', guardClick(btn, async (e) => {
       e.stopPropagation();
       const meeting = deals.find((d) => String(d.id) === btn.dataset.id);
       if (!confirm(`Delete "${meeting?.title || 'this meeting'}"? This cancels it in Zoom for everyone invited.`)) return;
@@ -792,7 +814,7 @@ async function renderMeetingsTab() {
         body: JSON.stringify({ deleted_by: currentUser(), topic: meeting?.title, scheduled_at: meeting?.scheduled_at }),
       });
       renderMeetingsTab();
-    });
+    }));
   });
   // A real <input type="datetime-local"> instead of window.prompt() — prompt()
   // isn't available in every embedding context (confirmed failing in some),
@@ -816,7 +838,8 @@ async function renderMeetingsTab() {
         inlineFormClosed();
         form.remove();
       });
-      form.querySelector('.ir-save').addEventListener('click', async (ev) => {
+      const irSaveBtn = form.querySelector('.ir-save');
+      irSaveBtn.addEventListener('click', guardClick(irSaveBtn, async (ev) => {
         ev.stopPropagation();
         const val = form.querySelector('.ir-time').value;
         if (!val) return;
@@ -837,7 +860,7 @@ async function renderMeetingsTab() {
         );
         inlineFormClosed();
         renderMeetingsTab();
-      });
+      }));
     });
   });
 }
@@ -1063,7 +1086,7 @@ async function openDealModal(id, opts = {}) {
   $('#modal-overlay').hidden = false;
 
   if ($('#m-add-remark')) {
-    $('#m-add-remark').addEventListener('click', async () => {
+    $('#m-add-remark').addEventListener('click', guardClick($('#m-add-remark'), async () => {
       const note = $('#m-remark').value.trim();
       if (!note) return;
       await api(`/api/deals/${id}/note`, {
@@ -1071,11 +1094,11 @@ async function openDealModal(id, opts = {}) {
         body: JSON.stringify({ note, changed_by: currentUser() }),
       });
       openDealModal(id);
-    });
+    }));
   }
 
   if ($('#m-schedule')) {
-    $('#m-schedule').addEventListener('click', async () => {
+    $('#m-schedule').addEventListener('click', guardClick($('#m-schedule'), async () => {
       const time = $('#m-time').value;
       if (!time) return alert('Pick a time.');
       const zoomInput = $('#m-zoom');
@@ -1087,19 +1110,19 @@ async function openDealModal(id, opts = {}) {
       await api(`/api/deals/${id}/${endpoint}`, { method: 'POST', body: JSON.stringify(payload) });
       refresh();
       openDealModal(id, { justBooked: true }); // straight on to sending the client the details
-    });
+    }));
   }
 
   if ($('#m-delete-meeting')) {
-    $('#m-delete-meeting').addEventListener('click', async () => {
+    $('#m-delete-meeting').addEventListener('click', guardClick($('#m-delete-meeting'), async () => {
       if (!confirm('Delete this meeting? This cancels the Zoom meeting and removes it from the calendar — the contact and deal stay.')) return;
       await api(`/api/deals/${id}/meeting`, { method: 'DELETE', body: JSON.stringify({ changed_by: currentUser() }) });
       closeModal(); refresh();
-    });
+    }));
   }
 
   if ($('#m-request-reschedule')) {
-    $('#m-request-reschedule').addEventListener('click', async () => {
+    $('#m-request-reschedule').addEventListener('click', guardClick($('#m-request-reschedule'), async () => {
       const remark = $('#m-resched-remark').value.trim();
       if (!remark) return alert('Add a short reason.');
       await api(`/api/deals/${id}/request-reschedule`, {
@@ -1107,18 +1130,18 @@ async function openDealModal(id, opts = {}) {
         body: JSON.stringify({ remark, requested_by: currentUser() }),
       });
       openDealModal(id); refresh();
-    });
+    }));
   }
 
   if ($('#m-withdraw-request')) {
-    $('#m-withdraw-request').addEventListener('click', async () => {
+    $('#m-withdraw-request').addEventListener('click', guardClick($('#m-withdraw-request'), async () => {
       await api(`/api/deals/${id}/request-reschedule`, { method: 'DELETE' });
       openDealModal(id); refresh();
-    });
+    }));
   }
 
   if ($('#m-log-followup')) {
-    $('#m-log-followup').addEventListener('click', async () => {
+    $('#m-log-followup').addEventListener('click', guardClick($('#m-log-followup'), async () => {
       await api(`/api/deals/${id}/followup`, {
         method: 'POST',
         body: JSON.stringify({
@@ -1128,7 +1151,7 @@ async function openDealModal(id, opts = {}) {
         }),
       });
       openDealModal(id); refresh();
-    });
+    }));
   }
 
 }
@@ -1177,7 +1200,8 @@ async function renderContactsTab(q) {
         inlineFormClosed();
         form.remove();
       });
-      form.querySelector('.ie-save').addEventListener('click', async () => {
+      const ieSaveBtn = form.querySelector('.ie-save');
+      ieSaveBtn.addEventListener('click', guardClick(ieSaveBtn, async () => {
         try {
           await api(`/api/contacts/${c.id}`, {
             method: 'PATCH',
@@ -1192,10 +1216,11 @@ async function renderContactsTab(q) {
         }
         inlineFormClosed();
         renderContactsTab($('#contact-search').value);
-      });
+      }));
       // Available to all three roles — unlike adding a contact (Caller's
       // job), removing a bad record is something anyone should be able to do.
-      form.querySelector('.ie-delete').addEventListener('click', async () => {
+      const ieDeleteBtn = form.querySelector('.ie-delete');
+      ieDeleteBtn.addEventListener('click', guardClick(ieDeleteBtn, async () => {
         if (
           !confirm(
             `Delete ${c.name}? This removes the contact and their deal history, and cancels any real Zoom meeting they have booked. This can't be undone.`
@@ -1205,7 +1230,7 @@ async function renderContactsTab(q) {
         await api(`/api/contacts/${c.id}`, { method: 'DELETE', body: JSON.stringify({ deleted_by: currentUser() }) });
         inlineFormClosed();
         renderContactsTab($('#contact-search').value);
-      });
+      }));
     });
     const chatLink = whatsappLink(c.phone);
     if (chatLink) {
@@ -1330,12 +1355,12 @@ $('#contact-form').addEventListener('submit', async (e) => {
   renderContactsTab();
 });
 
-$('#import-leads-btn').addEventListener('click', async () => {
+$('#import-leads-btn').addEventListener('click', guardClick($('#import-leads-btn'), async () => {
   const res = await api('/api/leads/import', { method: 'POST', body: JSON.stringify({ created_by: currentUser() }) });
   alert(`Imported ${res.imported} new lead(s) as contacts + deals.`);
   renderContactsTab();
   refresh();
-});
+}));
 
 // =====================================================================
 // ANALYTICS (dependency-free inline SVG charts)
