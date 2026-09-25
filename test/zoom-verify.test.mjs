@@ -7,18 +7,27 @@ import * as zoom from '../lib/zoom.js';
 let bad = 0;
 const check = (n, c, d = '') => { if (!c) { bad++; console.log('FAIL', n, d); } else console.log('ok  ', n); };
 const real = globalThis.fetch;
+// What real Zoom did with our old requests: a start_time that is not exactly
+// "yyyy-MM-ddTHH:mm:ssZ" (e.g. it has .000 milliseconds) had its Z ignored and the digits
+// read as wall-clock time in the account's timezone (Singapore). A start_time with no Z is
+// wall-clock in the stated timezone. Only the exact-Z form is a true UTC instant.
+function zoomReads(start, tz) {
+  if (/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(start)) return new Date(start);
+  const digits = start.replace(/(\.\d+)?Z$/, '');
+  const zone = tz || 'Asia/Singapore';
+  if (zone !== 'Asia/Singapore') throw new Error('test only models Singapore');
+  return new Date(digits + '+08:00');
+}
 let stored = {}, deleted = [], skew = 0, lastCreate = null;
 globalThis.fetch = async (url, o = {}) => {
   const path = String(url).replace('https://api.zoom.us/v2', '');
   const j = (b, s = 200) => new Response(b == null ? null : JSON.stringify(b), { status: s });
   if (path === '/users/me/meetings' && o.method === 'POST') {
     lastCreate = JSON.parse(o.body);
-    // Real Zoom: if a timezone is supplied, start_time is read as wall-clock time in that zone (the Z is ignored).
-    const zoneShift = lastCreate.timezone === 'Asia/Singapore' ? -8 * 3600e3 : 0;
-    const st = new Date(new Date(lastCreate.start_time).getTime() + skew + zoneShift).toISOString();
+    const st = new Date(zoomReads(lastCreate.start_time, lastCreate.timezone).getTime() + skew).toISOString();
     stored['1'] = st; return j({ id: 1, join_url: 'u', start_url: 's', start_time: st });
   }
-  if (path === '/meetings/1' && o.method === 'PATCH') { stored['1'] = new Date(new Date(JSON.parse(o.body).start_time).getTime() + skew).toISOString(); return j(null, 204); }
+  if (path === '/meetings/1' && o.method === 'PATCH') { const b = JSON.parse(o.body); stored['1'] = new Date(zoomReads(b.start_time, b.timezone).getTime() + skew).toISOString(); return j(null, 204); }
   if (path === '/meetings/1' && o.method === 'DELETE') { deleted.push(1); return j(null, 204); }
   if (path === '/meetings/1') return j({ id: 1, start_time: stored['1'] });
   return real(url, o);
@@ -30,7 +39,9 @@ await withTeam(987654, async () => {
   const at = '2026-09-25T05:00:00.000Z';
   const m = await zoom.createMeeting({ topic: 't', startTime: at });
   check('create ok', m.id === 1);
-  check('create sends no timezone field (Zoom would reinterpret start_time)', lastCreate.timezone === undefined);
+  check('create sends Singapore wall-clock time with the timezone stated', lastCreate.start_time === '2026-09-25T13:00:00' && lastCreate.timezone === 'Asia/Singapore', JSON.stringify(lastCreate));
+  check('Zoom ends up at the intended instant', stored['1'] === at, stored['1']);
+  check('the old ms-Z format would have been stored 8h early (the bug seen in production)', zoomReads('2026-09-30T05:00:00.000Z').toISOString() === '2026-09-29T21:00:00.000Z');
   await zoom.updateMeetingTime(1, { startTime: '2026-09-25T07:00:00.000Z' });
   check('update ok', stored['1'] === '2026-09-25T07:00:00.000Z');
   // If Zoom refuses to let us read the meeting back (missing scope), the move still counts.
