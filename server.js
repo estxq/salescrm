@@ -1044,9 +1044,14 @@ function oauthFailed(res, service, reason) {
   const clean = String(reason || 'unknown error').replace(/\s+/g, ' ').slice(0, 300);
   res.redirect(`/?${service}=error&reason=${encodeURIComponent(clean)}`);
 }
-function oauthReturnProblem({ code, error, error_description, state }, expected) {
+function oauthReturnProblem(query, expected) {
+  const { code, error, error_description, state } = query;
   if (error) return `${error}${error_description ? ` — ${error_description}` : ''}`;
-  if (!code) return 'the provider did not send back an authorisation code';
+  if (!code) {
+    // Names only, never values — enough to tell "opened the address directly" from "Zoom sent something unexpected".
+    const got = Object.keys(query).join(', ');
+    return `Zoom did not send back a sign-in code (it sent: ${got || 'nothing'}). Start from the Connect Zoom button in this app, in one tab, and complete Zoom's sign-in — don't open the callback address yourself or use Zoom's own "Add app" / "Local test" buttons.`;
+  }
   if (!state || !expected) return 'the sign-in session expired or the browser blocked cookies — try again in the same tab';
   if (state !== expected) return 'the sign-in did not match this browser session — try again';
   return null;
