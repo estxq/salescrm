@@ -301,6 +301,14 @@ server's zone (UTC on Vercel). Now:
   appears if the device's own timezone differs.
 - `lib/tz.js` does the same on the server: notification/activity text
   (`formatWhen`), month ranges for the calendar, and analytics months.
+- **Every request that sets a meeting time is cross-checked on the server.** The
+  browser sends the instant *and* the wall-clock text typed (`scheduled_local`);
+  if they don't describe the same Singapore moment — or the request comes from an
+  old cached page that doesn't send it — the server refuses and saves nothing
+  (`wallClockProblem` in `lib/tz.js`). Zoom is checked too: after creating or
+  moving a meeting the app reads it back from Zoom and refuses (and removes a
+  just-created meeting) if Zoom didn't store exactly that moment.
+- Notifications are paged 5 at a time, newest first, with Newer/Older buttons.
 - Singapore has no daylight saving, so a fixed UTC+8 is exact. For a team in
   another timezone, change `TEAM_TZ`/`TEAM_OFFSET_MIN` in `public/time.js` and
   `TEAM_TIMEZONE`/`TEAM_OFFSET_MIN` in `lib/tz.js` together.

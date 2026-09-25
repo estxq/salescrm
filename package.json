@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test:tz": "node test/time.test.mjs && node test/tz-lint.test.mjs"
+    "test:tz": "node test/time.test.mjs && node test/tz-lint.test.mjs && node test/zoom-verify.test.mjs"
   },
   "engines": {
     "node": ">=18"

@@ -75,7 +75,7 @@ import { listNotifications, markRead, markDone, markAllRead, unreadCount, delete
 import { readZoomLog, syncZoomLog, setZoomOutcome, forgetZoomMeeting } from './lib/zoomlog.js';
 import { recordOnce, recordEvent, recordZoomMeetingsSeen, forgetMeeting, backfillDealRefs, monthlyAnalytics } from './lib/stats.js';
 import { buildIcs, googleCalendarLink } from './lib/calendar.js';
-import { formatWhen, sgMonthRange, sgNow, TEAM_TZ_PARAM } from './lib/tz.js';
+import { formatWhen, sgMonthRange, sgNow, TEAM_TZ_PARAM, wallClockProblem } from './lib/tz.js';
 import { checkAndSendReminders } from './lib/reminders.js';
 import * as zoom from './lib/zoom.js';
 import * as gcal from './lib/gcal.js';
@@ -421,7 +421,15 @@ function duplicatePhoneResponse(res, existing) {
   });
 }
 
-app.post('/api/contacts', callerOnly, async (req, res) => {
+// Refuses any time-setting request whose typed wall-clock and stored instant disagree
+// (see wallClockProblem in lib/tz.js).
+const timeChecked = (req, res, next) => {
+  const problem = wallClockProblem(req.body);
+  if (problem) return res.status(409).json({ error: problem });
+  next();
+};
+
+app.post('/api/contacts', callerOnly, timeChecked, async (req, res) => {
   const { name, phone, email, company, notes, created_by, scheduled_at, zoom_link } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   const duplicate = await findContactByPhone(phone);
@@ -582,7 +590,7 @@ app.post('/api/deals/:id/stage', async (req, res) => {
   res.json(deal);
 });
 
-app.post('/api/deals/:id/schedule', callerOnly, async (req, res) => {
+app.post('/api/deals/:id/schedule', callerOnly, timeChecked, async (req, res) => {
   const { zoom_link, scheduled_at, changed_by } = req.body;
   if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at required' });
   const existing = await getDeal(req.params.id);
@@ -606,7 +614,7 @@ app.delete('/api/deals/:id/meeting', callerOnly, async (req, res) => {
   res.json(deal);
 });
 
-app.post('/api/deals/:id/reschedule', callerOnly, async (req, res) => {
+app.post('/api/deals/:id/reschedule', callerOnly, timeChecked, async (req, res) => {
   const { scheduled_at, zoom_link, changed_by } = req.body;
   if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at required' });
   const existing = await getDeal(req.params.id);
@@ -752,7 +760,7 @@ app.post('/api/zoom-meetings/:meetingId/outcome', agentOnly, async (req, res) =>
   res.json({ ok: true });
 });
 
-app.post('/api/zoom-meetings/:meetingId/reschedule', callerOnly, async (req, res) => {
+app.post('/api/zoom-meetings/:meetingId/reschedule', callerOnly, timeChecked, async (req, res) => {
   const { scheduled_at, changed_by, topic } = req.body || {};
   if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at required' });
   if (!(await zoom.isConnected())) return res.status(400).json({ error: 'Zoom not connected' });

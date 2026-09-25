@@ -267,20 +267,30 @@ async function refreshNotifCount() {
 
 // "New" is everything not yet marked done; "Old" is what's been marked done.
 let notifTab = 'new';
+// The list is newest-first, so page 1 is always the latest; Next walks back in time.
+const NOTIF_PAGE_SIZE = 5;
+let notifPage = 1;
 
 async function renderNotifDropdown() {
   $$('.notif-tab').forEach((t) => t.classList.toggle('active', t.dataset.notifTab === notifTab));
   $('#notif-mark-all').hidden = notifTab !== 'new';
   const notifs = await api(`/api/notifications?role=${currentRole}&status=${notifTab}`);
   const el = $('#notif-list');
+  const pages = Math.max(1, Math.ceil(notifs.length / NOTIF_PAGE_SIZE));
+  notifPage = Math.min(Math.max(1, notifPage), pages); // e.g. marking the last one on a page done
+  $('#notif-pager').hidden = pages <= 1;
+  $('#notif-page-label').textContent = `Page ${notifPage} of ${pages}`;
+  $('#notif-prev').disabled = notifPage <= 1;
+  $('#notif-next').disabled = notifPage >= pages;
   if (!notifs.length) {
     el.innerHTML = `<div class="empty">${
       notifTab === 'new' ? 'No new notifications.' : 'Nothing here yet. Notifications you mark as done show up here.'
     }</div>`;
     return;
   }
+  $('#notif-dropdown').scrollTop = 0; // a new page starts at its top
   el.innerHTML = notifs
-    .slice(0, 20)
+    .slice((notifPage - 1) * NOTIF_PAGE_SIZE, notifPage * NOTIF_PAGE_SIZE)
     .map(
       (n) => `
       <div class="notif-item ${n.read_at ? '' : 'unread'}${n.done_at ? ' is-old' : ''}${n.from_role ? ` from-${n.from_role}` : ''}" data-id="${n.id}" data-deal="${n.deal_id || ''}" data-type="${n.type}">
@@ -321,15 +331,19 @@ async function renderNotifDropdown() {
 $$('.notif-tab').forEach((tab) => {
   tab.addEventListener('click', () => {
     notifTab = tab.dataset.notifTab;
+    notifPage = 1;
     renderNotifDropdown();
   });
 });
+$('#notif-prev').addEventListener('click', (e) => { e.stopPropagation(); notifPage--; renderNotifDropdown(); });
+$('#notif-next').addEventListener('click', (e) => { e.stopPropagation(); notifPage++; renderNotifDropdown(); });
 
 $('#notif-bell').addEventListener('click', async () => {
   const dd = $('#notif-dropdown');
   dd.hidden = !dd.hidden;
   if (!dd.hidden) {
-    notifTab = 'new'; // always open on what needs attention
+    notifTab = 'new'; // always open on what needs attention...
+    notifPage = 1; // ...and on the newest of it
     await renderNotifDropdown();
   }
 });
@@ -860,6 +874,7 @@ async function renderMeetingsTab() {
             method: 'POST',
             body: JSON.stringify({
               scheduled_at: sgInputToISO(val),
+              scheduled_local: val,
               changed_by: currentUser(),
               topic: meeting?.title,
             }),
@@ -1113,7 +1128,7 @@ async function openDealModal(id, opts = {}) {
       const zoomLink = zoomInput ? zoomInput.value.trim() : '';
       if (!ZOOM_STATUS.connected && !zoomLink) return alert('Need a Zoom link (or connect Zoom in the top bar to auto-generate one).');
       const endpoint = deal.stage === 'meeting_booked' ? 'reschedule' : 'schedule';
-      const payload = { scheduled_at: sgInputToISO(time), changed_by: currentUser() };
+      const payload = { scheduled_at: sgInputToISO(time), scheduled_local: time, changed_by: currentUser() };
       if (zoomLink) payload.zoom_link = zoomLink;
       await api(`/api/deals/${id}/${endpoint}`, { method: 'POST', body: JSON.stringify(payload) });
       refresh();
@@ -1390,6 +1405,7 @@ $('#contact-form').addEventListener('submit', async (e) => {
         notes: form.notes.value,
         created_by: currentUser(),
         scheduled_at: when ? sgInputToISO(when) : undefined,
+        scheduled_local: when || undefined,
         zoom_link: zoomLink || undefined,
       }),
     });

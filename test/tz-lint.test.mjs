@@ -27,10 +27,14 @@ check('app.js: no reading hours/minutes off a device Date', !/\.getHours\(|\.get
 check('app.js: analytics sends the Singapore offset', /tz:\s*String\(TEAM_TZ_PARAM\)/.test(app));
 check('app.js: scheduling inputs go through sgInputToISO', (app.match(/sgInputToISO\(/g) || []).length >= 3);
 
+check('app.js: every sgInputToISO send also carries scheduled_local (server cross-check)',
+  (app.match(/scheduled_local:/g) || []).length >= (app.match(/sgInputToISO\(/g) || []).length - 0);
+
 // Server: dates baked into stored text must use formatWhen; months are Singapore's.
 check('server/lib: no unpinned toLocaleString', lines(server, /\.toLocale(Date|Time)?String\(/).length === 0,
   JSON.stringify(lines(server, /\.toLocale(Date|Time)?String\(/)));
 check('server: no now.getMonth()/getFullYear() (server zone)', !/now\.getMonth\(\)|now\.getFullYear\(\)/.test(read('../server.js')));
+check('server: all four time-setting routes are cross-checked', (read('../server.js').match(/timeChecked/g) || []).length >= 5);
 check('server: analytics does not trust a client tz', !/req\.query\.tz/.test(read('../server.js')));
 
 process.exit(bad ? 1 : 0);
