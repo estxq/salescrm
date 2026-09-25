@@ -1027,11 +1027,15 @@ app.post('/api/notifications/read-all', async (req, res) => {
 });
 
 // ---------- Zoom (the agent's own personal account) ----------
-app.get('/auth/zoom', agentOnly, (req, res) => {
-  if (!zoom.isConfigured()) return res.status(400).send('Zoom not configured — set ZOOM_CLIENT_ID / ZOOM_CLIENT_SECRET in .env.');
-  const state = crypto.randomBytes(16).toString('hex');
+app.get('/auth/zoom', agentOnly, async (req, res) => {
+  if (!(await zoom.isConfigured())) return res.status(400).send('Zoom not configured — set ZOOM_CLIENT_ID / ZOOM_CLIENT_SECRET in .env.');
+  const choices = await zoom.appChoices();
+  const appKey = String(req.query.app || choices[0].key);
+  if (!choices.some((c) => c.key === appKey)) return res.status(400).send('Unknown Zoom app.');
+  // The chosen app rides inside the state, which is checked against the cookie on the way back.
+  const state = `${crypto.randomBytes(16).toString('hex')}.${appKey}`;
   setOAuthState(req, res, state);
-  res.redirect(zoom.buildAuthorizeUrl(state));
+  res.redirect(await zoom.buildAuthorizeUrl(state, appKey));
 });
 
 // Sends the browser home with the reason an OAuth connection failed, so the alert can say
@@ -1054,7 +1058,7 @@ app.get('/auth/zoom/callback', agentOnly, async (req, res) => {
   const problem = oauthReturnProblem(req.query, expected);
   if (problem) return oauthFailed(res, 'zoom', problem);
   try {
-    await zoom.exchangeCode(code);
+    await zoom.exchangeCode(code, String(req.query.state).split('.')[1]); // state was verified above
     res.redirect('/?zoom=connected');
   } catch (err) {
     console.error('[zoom] oauth callback failed', err);
@@ -1063,7 +1067,31 @@ app.get('/auth/zoom/callback', agentOnly, async (req, res) => {
 });
 
 app.get('/api/zoom/status', async (req, res) => {
-  res.json({ configured: zoom.isConfigured(), connected: await zoom.isConnected(), email: await zoom.connectedEmail() });
+  res.json({
+    configured: await zoom.isConfigured(),
+    connected: await zoom.isConnected(),
+    email: await zoom.connectedEmail(),
+    apps: await zoom.appChoices(),
+    custom: await zoom.customAppInfo(), // this team's own Zoom app, if any (never its Secret)
+    redirect_uri: zoom.redirectUri(),
+  });
+});
+
+// A team keeping its own Zoom app's credentials. Agent only; the Secret is stored encrypted
+// and is never returned by any route.
+app.put('/api/zoom/app', agentOnly, async (req, res) => {
+  const clientId = String(req.body?.client_id || '').trim();
+  const clientSecret = String(req.body?.client_secret || '').trim();
+  const label = String(req.body?.label || '').trim().slice(0, 40);
+  if (clientId.length < 8 || clientId.length > 100 || /\s/.test(clientId)) return res.status(400).json({ error: 'That does not look like a Zoom Client ID.' });
+  if (clientSecret.length < 8 || clientSecret.length > 200 || /\s/.test(clientSecret)) return res.status(400).json({ error: 'That does not look like a Zoom Client Secret.' });
+  await zoom.saveCustomApp({ clientId, clientSecret, label });
+  res.json({ custom: await zoom.customAppInfo() });
+});
+
+app.delete('/api/zoom/app', agentOnly, async (req, res) => {
+  await zoom.removeCustomApp();
+  res.status(204).end();
 });
 
 app.post('/api/zoom/disconnect', agentOnly, async (req, res) => {

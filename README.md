@@ -286,6 +286,15 @@ manages the deployment.
 Not included: email verification (there's no email service), so double-check
 your address when signing up.
 
+**Who can connect which Zoom account.** Every team connects its own Agent's Zoom, kept
+separately per team. A Zoom app that isn't published only lets in accounts inside its owner's
+Zoom account, so there are three ways to cover different teams: publish one Zoom app (best
+long-term — one Client ID for everyone); add extra shared apps in the environment
+(`ZOOM_CLIENT_ID_2`… up to `_5`, picked in the Zoom menu); or let a team save its **own**
+Zoom app's Client ID + Secret in the app (Agent → **Own Zoom app**), stored per team with the
+Secret encrypted (AES-256-GCM, key `ZOOM_CRED_KEY`, never sent back to the browser). A
+connection remembers which app made it, so its token refreshes with the same credentials.
+
 **Every time is Singapore time, whatever the device says.** A meeting is one
 real moment, and both people must see the same clock time for it. Two things
 used to break that: a Caller whose laptop/phone wasn't set to Singapore typed

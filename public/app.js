@@ -215,6 +215,48 @@ function renderGoogleStatus() {
 // ---------- Zoom (the agent's own personal account) ----------
 let ZOOM_STATUS = { configured: false, connected: false, email: null };
 
+// A team can keep its own Zoom app's Client ID + Secret here instead of the site's shared app,
+// so a Zoom account outside the shared app's owner can still connect. The Secret is sent once,
+// stored encrypted on the server, and never shown again.
+function openOwnZoomAppModal() {
+  const c = ZOOM_STATUS.custom;
+  $('#modal-body').innerHTML = `
+    <h2>Your own Zoom app</h2>
+    <p class="hint">Use this if your Zoom account can't connect through the site's shared Zoom app. Create a <em>General App</em> (User-managed) at marketplace.zoom.us → Develop, add this Redirect URL, then paste its Client ID and Secret below.</p>
+    <div class="mactions"><input id="za-redirect" readonly value="${escapeHtml(ZOOM_STATUS.redirect_uri || '')}" style="flex:1" /></div>
+    ${c ? `<p class="hint">Saved: <strong>${escapeHtml(c.label)}</strong> · Client ID ${escapeHtml(c.client_id)} · the Secret is stored encrypted and can't be shown again.</p>` : ''}
+    <div class="mactions"><input id="za-id" placeholder="Client ID" autocomplete="off" style="flex:1" /></div>
+    <div class="mactions"><input id="za-secret" type="password" placeholder="Client Secret" autocomplete="new-password" style="flex:1" /></div>
+    <div class="mactions"><input id="za-label" placeholder="Name (optional, e.g. Esther's Zoom app)" maxlength="40" style="flex:1" /></div>
+    <div class="mactions">
+      <button id="za-save" class="primary">${c ? 'Replace' : 'Save'}</button>
+      ${c ? '<button id="za-remove" class="danger">Remove</button>' : ''}
+    </div>
+    <p class="hint">After saving, pick it in the Zoom menu at the top and click <strong>Connect Zoom</strong>.</p>`;
+  $('#modal-overlay').hidden = false;
+  $('#za-save').addEventListener('click', guardClick($('#za-save'), async () => {
+    const client_id = $('#za-id').value.trim();
+    const client_secret = $('#za-secret').value.trim();
+    if (!client_id || !client_secret) return alert('Enter both the Client ID and the Client Secret.');
+    try {
+      await api('/api/zoom/app', { method: 'PUT', body: JSON.stringify({ client_id, client_secret, label: $('#za-label').value.trim() }) });
+    } catch (err) {
+      return alert(err.message);
+    }
+    closeModal();
+    await loadZoomStatus();
+    alert('Saved. Choose it in the Zoom menu and click Connect Zoom.');
+  }));
+  if ($('#za-remove')) {
+    $('#za-remove').addEventListener('click', guardClick($('#za-remove'), async () => {
+      if (!confirm('Remove your own Zoom app? If Zoom is connected through it, it will be disconnected.')) return;
+      await api('/api/zoom/app', { method: 'DELETE' });
+      closeModal();
+      await loadZoomStatus();
+    }));
+  }
+}
+
 async function loadZoomStatus() {
   ZOOM_STATUS = await api('/api/zoom/status');
   renderZoomStatus();
@@ -229,6 +271,10 @@ function renderZoomStatus() {
   const canManage = currentRole === 'agent'; // it's the agent's own personal Zoom account
   if (!ZOOM_STATUS.configured) {
     el.innerHTML = '<span class="zoom-pill zoom-off" title="Set ZOOM_CLIENT_ID / ZOOM_CLIENT_SECRET in .env to enable">Zoom not connected</span>';
+    if (canManage) {
+      el.insertAdjacentHTML('beforeend', '<button id="zoom-own-app" class="zoom-disconnect">Own Zoom app</button>');
+      $('#zoom-own-app').addEventListener('click', openOwnZoomAppModal);
+    }
     return;
   }
   if (ZOOM_STATUS.connected) {
@@ -236,6 +282,8 @@ function renderZoomStatus() {
       canManage ? '<button id="zoom-disconnect" class="zoom-disconnect">Disconnect</button>' : ''
     }`;
     if (canManage) {
+      el.insertAdjacentHTML('beforeend', '<button id="zoom-own-app" class="zoom-disconnect">Own Zoom app</button>');
+      $('#zoom-own-app').addEventListener('click', openOwnZoomAppModal);
       $('#zoom-disconnect').addEventListener('click', async () => {
         if (!confirm('Disconnect Zoom? New meetings will need a manual link until you reconnect.')) return;
         await api('/api/zoom/disconnect', { method: 'POST' });
@@ -243,7 +291,21 @@ function renderZoomStatus() {
       });
     }
   } else if (canManage) {
-    el.innerHTML = '<a href="/auth/zoom" class="zoom-pill zoom-connect">Connect Zoom</a>';
+    // With more than one Zoom app configured, the Agent picks the one their Zoom account can sign in to.
+    const apps = ZOOM_STATUS.apps || [];
+    el.innerHTML =
+      apps.length > 1
+        ? `<select id="zoom-app" class="zoom-app-pick" title="Which Zoom app to connect through">${apps
+            .map((a) => `<option value="${a.key}">${escapeHtml(a.label)}</option>`)
+            .join('')}</select><a id="zoom-connect-link" href="/auth/zoom?app=${apps[0].key}" class="zoom-pill zoom-connect">Connect Zoom</a>`
+        : '<a href="/auth/zoom" class="zoom-pill zoom-connect">Connect Zoom</a>';
+    el.insertAdjacentHTML('beforeend', '<button id="zoom-own-app" class="zoom-disconnect">Own Zoom app</button>');
+    $('#zoom-own-app').addEventListener('click', openOwnZoomAppModal);
+    if (apps.length > 1) {
+      $('#zoom-app').addEventListener('change', (e) => {
+        $('#zoom-connect-link').href = `/auth/zoom?app=${encodeURIComponent(e.target.value)}`;
+      });
+    }
   } else {
     el.innerHTML = '<span class="zoom-pill zoom-off">Zoom not connected (ask the agent)</span>';
   }
