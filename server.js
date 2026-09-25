@@ -1034,16 +1034,31 @@ app.get('/auth/zoom', agentOnly, (req, res) => {
   res.redirect(zoom.buildAuthorizeUrl(state));
 });
 
+// Sends the browser home with the reason an OAuth connection failed, so the alert can say
+// why instead of "check the server logs". Only ever shown to the signed-in Agent.
+function oauthFailed(res, service, reason) {
+  const clean = String(reason || 'unknown error').replace(/\s+/g, ' ').slice(0, 300);
+  res.redirect(`/?${service}=error&reason=${encodeURIComponent(clean)}`);
+}
+function oauthReturnProblem({ code, error, error_description, state }, expected) {
+  if (error) return `${error}${error_description ? ` — ${error_description}` : ''}`;
+  if (!code) return 'the provider did not send back an authorisation code';
+  if (!state || !expected) return 'the sign-in session expired or the browser blocked cookies — try again in the same tab';
+  if (state !== expected) return 'the sign-in did not match this browser session — try again';
+  return null;
+}
+
 app.get('/auth/zoom/callback', agentOnly, async (req, res) => {
-  const { code, error, state } = req.query;
+  const { code } = req.query;
   const expected = takeOAuthState(req, res);
-  if (error || !code || !state || state !== expected) return res.redirect('/?zoom=error');
+  const problem = oauthReturnProblem(req.query, expected);
+  if (problem) return oauthFailed(res, 'zoom', problem);
   try {
     await zoom.exchangeCode(code);
     res.redirect('/?zoom=connected');
   } catch (err) {
     console.error('[zoom] oauth callback failed', err);
-    res.redirect('/?zoom=error');
+    oauthFailed(res, 'zoom', err.message);
   }
 });
 
@@ -1065,15 +1080,16 @@ app.get('/auth/google', agentOnly, (req, res) => {
 });
 
 app.get('/auth/google/callback', agentOnly, async (req, res) => {
-  const { code, error, state } = req.query;
+  const { code } = req.query;
   const expected = takeOAuthState(req, res, 'google');
-  if (error || !code || !state || state !== expected) return res.redirect('/?google=error');
+  const problem = oauthReturnProblem(req.query, expected);
+  if (problem) return oauthFailed(res, 'google', problem);
   try {
     await gcal.exchangeCode(code);
     res.redirect('/?google=connected');
   } catch (err) {
     console.error('[gcal] oauth callback failed', err);
-    res.redirect('/?google=error');
+    oauthFailed(res, 'google', err.message);
   }
 });
 

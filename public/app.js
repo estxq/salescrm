@@ -1927,6 +1927,7 @@ async function startApp(info) {
   const params = new URLSearchParams(location.search);
   const zoomResult = params.get('zoom');
   const googleResult = params.get('google');
+  const failReason = params.get('reason');
   if (zoomResult || googleResult) history.replaceState({}, '', location.pathname);
 
   let res;
@@ -1942,7 +1943,7 @@ async function startApp(info) {
   if (!info.team) return showTeamPicker(info);
   await startApp(info);
   if (zoomResult === 'connected') alert('Zoom connected.');
-  else if (zoomResult === 'error') alert('Zoom connection failed — check the server logs.');
+  else if (zoomResult === 'error') alert(`Zoom connection failed${failReason ? `: ${failReason}` : ' — check the server logs.'}`);
   if (googleResult === 'connected') alert('Google Calendar connected. Your Caller can now see it — it will not appear on your own calendar.');
-  else if (googleResult === 'error') alert('Google Calendar connection failed — check the server logs.');
+  else if (googleResult === 'error') alert(`Google Calendar connection failed${failReason ? `: ${failReason}` : ' — check the server logs.'}`);
 })();
