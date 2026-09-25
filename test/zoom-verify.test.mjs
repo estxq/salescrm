@@ -33,6 +33,13 @@ await withTeam(987654, async () => {
   check('create sends no timezone field (Zoom would reinterpret start_time)', lastCreate.timezone === undefined);
   await zoom.updateMeetingTime(1, { startTime: '2026-09-25T07:00:00.000Z' });
   check('update ok', stored['1'] === '2026-09-25T07:00:00.000Z');
+  // If Zoom refuses to let us read the meeting back (missing scope), the move still counts.
+  const okGet = globalThis.fetch;
+  globalThis.fetch = async (url, o = {}) =>
+    String(url).endsWith('/meetings/1') && !o.method ? new Response('{"code":4711}', { status: 403 }) : okGet(url, o);
+  let readErr = null; try { await zoom.updateMeetingTime(1, { startTime: at }); } catch (e) { readErr = e; }
+  check('update still succeeds when the read-back is forbidden', readErr === null, String(readErr));
+  globalThis.fetch = okGet;
   skew = 2 * 3600e3;
   let err = null; try { await zoom.updateMeetingTime(1, { startTime: at }); } catch (e) { err = e; }
   check('update with Zoom 2h off is refused', !!err && /instead of/.test(err.message), String(err));
