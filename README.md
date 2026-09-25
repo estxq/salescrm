@@ -286,15 +286,29 @@ manages the deployment.
 Not included: email verification (there's no email service), so double-check
 your address when signing up.
 
-**Notification times are pinned to Singapore time** (`lib/tz.js`). Every date
-the app shows lives in one of two places: rendered fresh in the viewer's own
-browser (the calendar, Meetings, the deal window — always correct, since it's
-the viewer's own local time), or baked once into a notification's text at the
-moment the server writes it (a reschedule request, "moved the meeting to…").
-That second kind can't reformat itself per viewer, so it has to pick one
-timezone and stick to it — Node defaults to UTC on Vercel regardless of where
-the team actually is, which without this would silently shift every such
-message by the gap between UTC and Singapore time (8 hours) once deployed,
-while looking fine in local testing on a machine already set to roughly the
-right zone. If this app is ever run for a team outside Singapore, change
-`TEAM_TIMEZONE` in `lib/tz.js` to match.
+**Every time is Singapore time, whatever the device says.** A meeting is one
+real moment, and both people must see the same clock time for it. Two things
+used to break that: a Caller whose laptop/phone wasn't set to Singapore typed
+"1:00 pm", the browser read it in *their* zone, and the Agent (in Singapore)
+saw it 2 hours early; and text baked into a notification on the server used the
+server's zone (UTC on Vercel). Now:
+
+- `public/time.js` is the only place the browser handles time. Times typed into
+  the schedule/reschedule/new-contact fields are read as Singapore time
+  (`sgInputToISO`), shown times are formatted in Singapore time (`sgFormat`,
+  `sgTime`, `sgDate`), and the calendar buckets meetings into days/months by
+  Singapore date. The inputs are labelled "Singapore time", and a notice
+  appears if the device's own timezone differs.
+- `lib/tz.js` does the same on the server: notification/activity text
+  (`formatWhen`), month ranges for the calendar, and analytics months.
+- Singapore has no daylight saving, so a fixed UTC+8 is exact. For a team in
+  another timezone, change `TEAM_TZ`/`TEAM_OFFSET_MIN` in `public/time.js` and
+  `TEAM_TIMEZONE`/`TEAM_OFFSET_MIN` in `lib/tz.js` together.
+- `npm run test:tz` runs the multi-timezone tests and a lint that fails if
+  anyone reintroduces a device-timezone call (`toLocaleString`,
+  `getTimezoneOffset`, `new Date(<typed value>)`) outside those two files.
+
+Meetings booked *before* this fix by a Caller on a non-Singapore device were
+stored 2 hours early (for UTC+10). Fix them by having the Caller use
+Meetings → Reschedule and re-enter the right time; that also moves the real
+Zoom meeting.

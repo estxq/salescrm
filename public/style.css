@@ -944,3 +944,14 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 .an-today { font: inherit; font-size: 12px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--card); color: var(--muted); cursor: pointer; white-space: nowrap; }
 .an-today[hidden] { display: none; }
 .months-table tfoot th, .months-table tfoot td { border-top: 2px solid var(--border); border-bottom: none; font-weight: 700; }
+
+/* ---------- Everything is Singapore time: the device-timezone notice + input hints ---------- */
+.tz-banner {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 24px 4px; padding: 10px 14px;
+  background: #fef3c7; border: 1px solid #fcd34d; color: #7c4a03; border-radius: 10px;
+  font-size: 13px; line-height: 1.45;
+}
+.tz-banner[hidden] { display: none; }
+.tz-banner .ib-dismiss { margin-left: auto; border: none; background: none; font-size: 18px; line-height: 1; cursor: pointer; color: inherit; }
+.tz-hint { align-self: center; white-space: nowrap; }

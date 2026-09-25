@@ -75,7 +75,7 @@ import { listNotifications, markRead, markDone, markAllRead, unreadCount, delete
 import { readZoomLog, syncZoomLog, setZoomOutcome, forgetZoomMeeting } from './lib/zoomlog.js';
 import { recordOnce, recordEvent, recordZoomMeetingsSeen, forgetMeeting, backfillDealRefs, monthlyAnalytics } from './lib/stats.js';
 import { buildIcs, googleCalendarLink } from './lib/calendar.js';
-import { formatWhen } from './lib/tz.js';
+import { formatWhen, sgMonthRange, sgNow, TEAM_TZ_PARAM } from './lib/tz.js';
 import { checkAndSendReminders } from './lib/reminders.js';
 import * as zoom from './lib/zoom.js';
 import * as gcal from './lib/gcal.js';
@@ -937,11 +937,12 @@ const ZOOM_ID_IN_LINK = /zoom\.us\/(?:j|my|w)\/(\d{8,})/i;
 
 app.get('/api/summary/month', async (req, res) => {
   const [y, m] = (req.query.month || '').split('-').map(Number);
-  const now = new Date();
-  const year = y || now.getFullYear();
-  const monthIndex = m ? m - 1 : now.getMonth();
-  const monthStart = new Date(year, monthIndex, 1);
-  const monthEnd = new Date(year, monthIndex + 1, 1);
+  // The month as Singapore reads it, not as this server's clock does — on Vercel
+  // that's UTC, which would put a meeting at 1am on the 1st in the wrong month.
+  const now = sgNow();
+  const year = y || now.year;
+  const monthIndex = m ? m - 1 : now.monthIndex;
+  const { start: monthStart, end: monthEnd } = sgMonthRange(year, monthIndex);
   const inMonth = (meeting) => {
     const t = new Date(meeting.scheduled_at).getTime();
     return t >= monthStart.getTime() && t < monthEnd.getTime();
@@ -987,7 +988,9 @@ app.get('/api/analytics', agentOnly, async (req, res) => {
   await backfillDealRefs(deals);
   // Pick up any interviews booked straight in Zoom that we haven't counted yet.
   await getZoomOnlyMeetings(new Set(deals.filter((d) => d.zoom_meeting_id).map((d) => d.zoom_meeting_id)));
-  res.json(await monthlyAnalytics({ month: req.query.month, tz: Number(req.query.tz) || 0 }));
+  // Always Singapore's months. (A browser used to send its own offset here, which
+  // let a device on another timezone see different month totals.)
+  res.json(await monthlyAnalytics({ month: req.query.month, tz: TEAM_TZ_PARAM }));
 });
 
 // ---------- In-app notifications (replaces the old WhatsApp pings) ----------

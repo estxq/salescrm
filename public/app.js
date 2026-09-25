@@ -67,11 +67,11 @@ async function api(path, opts) {
   return res.status === 204 ? null : res.json();
 }
 
+// Every time shown or typed goes through public/time.js, which pins it to
+// Singapore time — never the device's own timezone (see the note there).
 function fmtWhen(iso) {
   if (!iso) return 'not scheduled yet';
-  return new Date(iso).toLocaleString(undefined, {
-    weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-  });
+  return sgFormat(iso, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
 // The team confirms meetings over WhatsApp, not email — this builds a
@@ -97,9 +97,7 @@ function sendLabel() {
   return currentRole === 'agent' ? 'Send reminder' : 'Send details';
 }
 function confirmMeetingMessage(name, scheduledAt, zoomLink) {
-  const when = new Date(scheduledAt).toLocaleString(undefined, {
-    weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-  });
+  const when = sgFormat(scheduledAt, { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   const zoom = zoomLink ? ` Zoom link: ${zoomLink}` : '';
   return currentRole === 'agent'
     ? `Hi ${name || 'there'}, a quick reminder about our meeting on ${when}.${zoom}`
@@ -351,7 +349,7 @@ document.addEventListener('click', (e) => {
 // SUMMARY (Agent: month calendar + next meetings. Caller: reschedule requests + month calendar)
 // =====================================================================
 function fmtTime(iso) {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return sgTime(iso);
 }
 
 // One card's fetch failing (or the server being mid-restart) must never
@@ -420,7 +418,14 @@ async function renderRequestsCard() {
 }
 
 // ---------- Month calendar (Summary, both roles) ----------
-let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+// The calendar grid works in plain calendar dates (a local Date is used only as
+// a container for year/month/day) — what makes them Singapore's is that "today"
+// and the day each meeting sits on both come from time.js, not from the device.
+const sgMonthStart = () => {
+  const t = sgToday();
+  return new Date(t.y, t.m - 1, 1);
+};
+let calendarMonth = sgMonthStart();
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const CAL_MAX_VISIBLE = 3;
 
@@ -454,13 +459,9 @@ async function renderCalendarUpcoming() {
     }
     // Just the nearest upcoming date's meetings — one meeting there shows
     // one, two shows two, rather than padding out to a fixed count.
-    const nearestDay = new Date(all[0].scheduled_at).toDateString();
-    const upcoming = all.filter((m) => new Date(m.scheduled_at).toDateString() === nearestDay);
-    heading.textContent = `Upcoming — ${new Date(all[0].scheduled_at).toLocaleDateString(undefined, {
-      weekday: 'long',
-      month: 'short',
-      day: 'numeric',
-    })}`;
+    const nearestDay = sgDayKey(all[0].scheduled_at);
+    const upcoming = all.filter((m) => sgDayKey(m.scheduled_at) === nearestDay);
+    heading.textContent = `Upcoming — ${sgDate(all[0].scheduled_at, { weekday: 'long', month: 'short', day: 'numeric' })}`;
     el.innerHTML = upcoming
       .map((m) => {
         const isZoomOnly = m.source === 'zoom';
@@ -498,9 +499,10 @@ async function renderCalendarCard() {
     const meetings = await api(`/api/summary/month?month=${monthParam}`);
     const byDay = {};
     meetings.forEach((m) => {
-      // An all-day event is a date, stored as noon UTC; read the date back in UTC so it
-      // lands on the right day whatever timezone this browser is in.
-      const d = m.all_day ? new Date(new Date(m.scheduled_at).getUTCFullYear(), new Date(m.scheduled_at).getUTCMonth(), new Date(m.scheduled_at).getUTCDate()) : new Date(m.scheduled_at);
+      // Which Singapore day it falls on. (An all-day event is stored as noon UTC,
+      // which is 8pm the same date in Singapore, so it lands on its own date too.)
+      const sp = sgParts(m.scheduled_at);
+      const d = new Date(sp.y, sp.m - 1, sp.d);
       if (d.getMonth() !== calendarMonth.getMonth() || d.getFullYear() !== calendarMonth.getFullYear()) return;
       (byDay[d.getDate()] = byDay[d.getDate()] || []).push(m);
     });
@@ -511,7 +513,8 @@ async function renderCalendarCard() {
     const firstOfMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
     const daysInMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0).getDate();
     const leadingBlanks = firstOfMonth.getDay();
-    const today = new Date();
+    const sgt = sgToday();
+    const today = new Date(sgt.y, sgt.m - 1, sgt.d);
 
     let cells = WEEKDAY_LABELS.map((w) => `<div class="cal-weekday">${w}</div>`).join('');
     for (let i = 0; i < leadingBlanks; i++) cells += '<div class="cal-day empty"></div>';
@@ -568,7 +571,7 @@ $('#cal-next').addEventListener('click', () => {
   renderCalendarCard();
 });
 $('#cal-today').addEventListener('click', () => {
-  calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  calendarMonth = sgMonthStart();
   renderCalendarCard();
 });
 
@@ -604,7 +607,7 @@ function avatarHtml(name) {
 }
 
 function fmtDateOnly(iso) {
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  return sgDate(iso, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 async function renderMeetingsTab() {
@@ -830,7 +833,8 @@ async function renderMeetingsTab() {
       const form = document.createElement('div');
       form.className = 'inline-resched';
       form.innerHTML = `
-        <input type="datetime-local" class="ir-time" />
+        <input type="datetime-local" class="ir-time" title="Singapore time" />
+        <span class="hint tz-hint">Singapore time</span>
         <button class="ir-save primary">Save</button>
         <button class="ir-cancel">Cancel</button>
       `;
@@ -855,7 +859,7 @@ async function renderMeetingsTab() {
           {
             method: 'POST',
             body: JSON.stringify({
-              scheduled_at: new Date(val).toISOString(),
+              scheduled_at: sgInputToISO(val),
               changed_by: currentUser(),
               topic: meeting?.title,
             }),
@@ -1020,7 +1024,8 @@ async function openDealModal(id, opts = {}) {
         ? ''
         : `<div class="section-head"><h2>${deal.stage === 'meeting_booked' ? 'Reschedule' : 'Schedule meeting'}</h2></div>
     <div class="mactions">
-      <input id="m-time" type="datetime-local" />
+      <input id="m-time" type="datetime-local" title="Singapore time" />
+      <span class="hint tz-hint">Singapore time</span>
       ${ZOOM_STATUS.connected ? '' : `<input id="m-zoom" placeholder="Zoom link" value="${deal.zoom_link || ''}" />`}
       <button id="m-schedule" class="primary">${deal.stage === 'meeting_booked' ? 'Reschedule' : 'Schedule'}</button>
       ${deal.stage === 'meeting_booked' ? '<button id="m-delete-meeting" class="danger">Delete meeting</button>' : ''}
@@ -1108,7 +1113,7 @@ async function openDealModal(id, opts = {}) {
       const zoomLink = zoomInput ? zoomInput.value.trim() : '';
       if (!ZOOM_STATUS.connected && !zoomLink) return alert('Need a Zoom link (or connect Zoom in the top bar to auto-generate one).');
       const endpoint = deal.stage === 'meeting_booked' ? 'reschedule' : 'schedule';
-      const payload = { scheduled_at: new Date(time).toISOString(), changed_by: currentUser() };
+      const payload = { scheduled_at: sgInputToISO(time), changed_by: currentUser() };
       if (zoomLink) payload.zoom_link = zoomLink;
       await api(`/api/deals/${id}/${endpoint}`, { method: 'POST', body: JSON.stringify(payload) });
       refresh();
@@ -1384,7 +1389,7 @@ $('#contact-form').addEventListener('submit', async (e) => {
         email: form.email.value,
         notes: form.notes.value,
         created_by: currentUser(),
-        scheduled_at: when ? new Date(when).toISOString() : undefined,
+        scheduled_at: when ? sgInputToISO(when) : undefined,
         zoom_link: zoomLink || undefined,
       }),
     });
@@ -1444,10 +1449,7 @@ const monthName = (key, opts = { month: 'long', year: 'numeric' }) => {
   const [y, m] = key.split('-').map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString(undefined, opts);
 };
-const thisMonthKey = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-};
+const thisMonthKey = () => sgNowMonthKey();
 const shiftMonthKey = (key, delta) => {
   const [y, m] = key.split('-').map(Number);
   const d = new Date(y, m - 1 + delta, 1);
@@ -1455,7 +1457,7 @@ const shiftMonthKey = (key, delta) => {
 };
 
 async function renderAnalyticsTab() {
-  const params = new URLSearchParams({ tz: String(new Date().getTimezoneOffset()) });
+  const params = new URLSearchParams({ tz: String(TEAM_TZ_PARAM) });
   if (analyticsMonth) params.set('month', analyticsMonth);
   const a = await api(`/api/analytics?${params}`);
   analyticsMonth = a.month;
@@ -1871,8 +1873,22 @@ async function refreshMe() {
 }
 
 let pollTimer = null;
+// Only a notice: nothing here depends on the device's timezone any more, but a
+// Caller typing "1pm" while their computer says it's somewhere else deserves to
+// know the app reads it as Singapore time.
+function renderTzBanner() {
+  const show = deviceTimezoneDiffers() && sessionStorage.getItem('tzBannerDismissed') !== '1';
+  $('#tz-banner').hidden = !show;
+  if (show) $('#tz-device').textContent = deviceUtcLabel();
+}
+$('#tz-dismiss').addEventListener('click', () => {
+  sessionStorage.setItem('tzBannerDismissed', '1');
+  $('#tz-banner').hidden = true;
+});
+
 async function startApp(info) {
   ME = info;
+  renderTzBanner();
   $('#auth-screen').hidden = true;
   $('#app-shell').hidden = false;
   renderAccount();

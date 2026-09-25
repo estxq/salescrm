@@ -126,6 +126,11 @@
       </nav>
     </div>
 
+    <div id="tz-banner" class="tz-banner" hidden>
+      <span><strong>Heads up:</strong> this device is set to <span id="tz-device"></span>, not Singapore time. This app always uses <strong>Singapore time (SGT)</strong> — type meeting times as Singapore time and they'll read the same on everyone's screen.</span>
+      <button type="button" id="tz-dismiss" class="ib-dismiss" aria-label="Dismiss">×</button>
+    </div>
+
     <div id="invite-banner" class="invite-banner" hidden>
       <span>Your team is set up. Send your <strong id="ib-role"></strong> this invite code so they can join:</span>
       <code id="ib-code"></code>
@@ -238,7 +243,7 @@
             <label>Phone <input name="phone" placeholder="6591234567" autocomplete="off" /></label>
             <div id="cf-phone-warning" class="form-warning" hidden></div>
             <label>Email <input name="email" type="email" placeholder="client@example.com" /></label>
-            <label><span>Schedule a Zoom meeting <span class="hint">(optional)</span></span>
+            <label><span>Schedule a Zoom meeting <span class="hint">(optional, Singapore time)</span></span>
               <input name="scheduled_at" type="datetime-local" />
             </label>
             <label id="cf-zoom-row" hidden>Zoom link <input name="zoom_link" placeholder="https://zoom.us/j/…" /></label>
@@ -285,6 +290,7 @@
   </div>
 </div>
 
+<script src="time.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
