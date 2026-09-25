@@ -13,7 +13,9 @@ globalThis.fetch = async (url, o = {}) => {
   const j = (b, s = 200) => new Response(b == null ? null : JSON.stringify(b), { status: s });
   if (path === '/users/me/meetings' && o.method === 'POST') {
     lastCreate = JSON.parse(o.body);
-    const st = new Date(new Date(lastCreate.start_time).getTime() + skew).toISOString();
+    // Real Zoom: if a timezone is supplied, start_time is read as wall-clock time in that zone (the Z is ignored).
+    const zoneShift = lastCreate.timezone === 'Asia/Singapore' ? -8 * 3600e3 : 0;
+    const st = new Date(new Date(lastCreate.start_time).getTime() + skew + zoneShift).toISOString();
     stored['1'] = st; return j({ id: 1, join_url: 'u', start_url: 's', start_time: st });
   }
   if (path === '/meetings/1' && o.method === 'PATCH') { stored['1'] = new Date(new Date(JSON.parse(o.body).start_time).getTime() + skew).toISOString(); return j(null, 204); }
@@ -28,7 +30,7 @@ await withTeam(987654, async () => {
   const at = '2026-09-25T05:00:00.000Z';
   const m = await zoom.createMeeting({ topic: 't', startTime: at });
   check('create ok', m.id === 1);
-  check('create sends Singapore timezone label', lastCreate.timezone === 'Asia/Singapore');
+  check('create sends no timezone field (Zoom would reinterpret start_time)', lastCreate.timezone === undefined);
   await zoom.updateMeetingTime(1, { startTime: '2026-09-25T07:00:00.000Z' });
   check('update ok', stored['1'] === '2026-09-25T07:00:00.000Z');
   skew = 2 * 3600e3;
