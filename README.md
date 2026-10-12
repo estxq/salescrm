@@ -286,6 +286,18 @@ manages the deployment.
 Not included: email verification (there's no email service), so double-check
 your address when signing up.
 
+**Meetings booked in Schedule Hub are added to the Agent's Google Calendar.** When the
+Agent's Google Calendar is connected with permission to write, each meeting the Caller
+books, moves, deletes or cancels (including the Agent logging "Not interested", or a contact
+being deleted) is created, moved or removed as an event "Call with <name>" with the Zoom
+link and phone in the description. No attendees are added, so Google never emails the
+client. Only events the app created are ever changed; their ids are kept on the deal. A
+Google failure never undoes a booking: the Caller gets a short warning instead. The
+Caller's Summary calendar hides those events (they already show as the meeting) but still
+shows the Agent's other Google events. Needs the `.../auth/calendar.events` scope on the
+Google consent screen; an older read-only connection keeps working for viewing and the
+Agent sees an "Allow adding meetings" button to approve writing.
+
 **Who can connect which Zoom account.** Every team connects its own Agent's Zoom, kept
 separately per team. A Zoom app that isn't published only lets in accounts inside its owner's
 Zoom account, so there are three ways to cover different teams: publish one Zoom app (best

@@ -51,6 +51,7 @@ import {
   moveStage,
   scheduleMeeting,
   cancelMeeting,
+  setGoogleEvent,
   rescheduleMeeting,
   requestReschedule,
   logFollowUp,
@@ -95,6 +96,49 @@ async function cleanupZoomMeeting(dealBefore) {
   } catch (err) {
     console.error('[zoom] cleanup failed', err.message);
   }
+}
+
+// Mirrors a booked meeting onto the Agent's Google Calendar (when connected with
+// permission to write). Never throws and never undoes a booking: returns null when
+// all is well or when there's no calendar to update, or a short message the Caller
+// is shown when the meeting is booked but the calendar couldn't be updated.
+async function syncGoogleEvent(deal, contact, eventId) {
+  const st = await gcal.status();
+  if (!st.connected) return null;
+  if (st.needs_reconnect) return 'Booked, but not added to Google Calendar: the Agent needs to reconnect it.';
+  if (!st.can_write) return 'Booked, but not added to Google Calendar: it is connected read-only — ask the Agent to click "Allow adding meetings" in their top bar.';
+  try {
+    const name = contact?.name || 'client';
+    const id = await gcal.upsertEvent({
+      eventId,
+      summary: `Call with ${name}`,
+      description: [
+        deal.zoom_link ? `Zoom: ${deal.zoom_link}` : null,
+        contact?.phone ? `Phone: ${contact.phone}` : null,
+        'Booked in Schedule Hub',
+      ].filter(Boolean).join('\n'),
+      startISO: deal.scheduled_at,
+      dealId: deal.id,
+    });
+    if (id !== deal.google_event_id) await setGoogleEvent(deal.id, id);
+    return null;
+  } catch (err) {
+    console.error('[gcal] sync failed', err.message);
+    return 'Booked, but it could not be added to Google Calendar. Try Reschedule again, or tell the Agent.';
+  }
+}
+
+// Removes the mirrored event when a meeting is cancelled. Best-effort, awaited
+// for the same reason as cleanupZoomMeeting.
+async function dropGoogleEvent(deal) {
+  if (!deal?.google_event_id) return;
+  try {
+    const st = await gcal.status();
+    if (st.connected && !st.needs_reconnect && st.can_write) await gcal.deleteEvent(deal.google_event_id);
+  } catch (err) {
+    console.error('[gcal] delete failed', err.message);
+  }
+  await setGoogleEvent(deal.id, null);
 }
 
 // Meetings the agent booked directly in Zoom (interviews, etc.) rather than
@@ -210,7 +254,12 @@ async function bookMeeting(deal, contact, { scheduled_at, zoom_link, changed_by 
   if (previousMeetingId && previousMeetingId !== meetingId) await cleanupZoomMeeting({ zoom_meeting_id: previousMeetingId });
   await recordOnce('fixed', booked.stat_ref);
   await notifyScheduled(booked, changed_by);
-  return booked;
+  // A meeting still ahead is being replaced, so move its calendar event; one that already
+  // happened is history, so it keeps its event and this one gets a new event of its own.
+  const held = deal.outcome || (deal.scheduled_at && new Date(deal.scheduled_at).getTime() <= Date.now());
+  const calendar_warning = await syncGoogleEvent(booked, contact, held ? null : deal.google_event_id);
+  const fresh = (await getDeal(booked.id)) || booked; // now carrying the calendar event id
+  return calendar_warning ? { ...fresh, calendar_warning } : fresh;
 }
 
 // ---------- Accounts & teams ----------
@@ -483,6 +532,7 @@ app.delete('/api/contacts/:id', async (req, res) => {
   const deals = await listDeals({ contact_id: contact.id });
   for (const deal of deals) {
     await cleanupZoomMeeting(deal);
+    await dropGoogleEvent(deal);
     await forgetMeeting(deal.stat_ref);
   }
   await hideDealsForContact(contact.id);
@@ -586,7 +636,10 @@ app.post('/api/deals/:id/stage', async (req, res) => {
   const before = await getDeal(req.params.id);
   const deal = await moveStage(req.params.id, req.body || {});
   if (!deal) return res.status(404).json({ error: 'invalid deal or stage' });
-  if (deal.stage === 'lost') await cleanupZoomMeeting(before);
+  if (deal.stage === 'lost') {
+    await cleanupZoomMeeting(before);
+    await dropGoogleEvent(before);
+  }
   res.json(deal);
 });
 
@@ -608,6 +661,7 @@ app.delete('/api/deals/:id/meeting', callerOnly, async (req, res) => {
   const before = await getDeal(req.params.id);
   if (!before) return res.status(404).json({ error: 'not found' });
   await cleanupZoomMeeting(before);
+  await dropGoogleEvent(before);
   await forgetMeeting(before.stat_ref);
   const deal = await cancelMeeting(req.params.id, { changed_by: req.body?.changed_by });
   if (before.scheduled_at) await notifyMeetingDeleted(before, req.body?.changed_by);
@@ -638,7 +692,9 @@ app.post('/api/deals/:id/reschedule', callerOnly, timeChecked, async (req, res) 
   const deal = await rescheduleMeeting(req.params.id, { scheduled_at, zoom_link, changed_by });
   await recordEvent('rescheduled', (await getDeal(deal.id)).stat_ref);
   await notifyRescheduleConfirmed(deal, changed_by);
-  res.json(deal);
+  const calendar_warning = await syncGoogleEvent(deal, await getContact(deal.contact_id), existing.google_event_id);
+  const fresh = (await getDeal(deal.id)) || deal;
+  res.json(calendar_warning ? { ...fresh, calendar_warning } : fresh);
 });
 
 // The agent flags a problem with a remark; the caller is the one who
@@ -817,7 +873,10 @@ app.post('/api/deals/:id/followup', agentOnly, async (req, res) => {
   const isEdit = Boolean(before.outcome);
   const deal = await logFollowUp(req.params.id, { outcome, note, changed_by });
   if (!deal) return res.status(400).json({ error: 'invalid deal or outcome' });
-  if (deal.stage === 'lost') await cleanupZoomMeeting(before);
+  if (deal.stage === 'lost') {
+    await cleanupZoomMeeting(before);
+    await dropGoogleEvent(before);
+  }
   await backfillDealRefs([before]);
   await recordOnce('attended', (await getDeal(deal.id)).stat_ref);
   const label = FOLLOWUP_OUTCOMES[outcome].label;
@@ -934,11 +993,12 @@ app.get('/api/summary/activities', async (req, res) => {
 // listed (a Google event with a Zoom link, e.g. from Zoom's Calendar add-on) is
 // dropped so it isn't shown twice. Only the caller gets these: the agent wants a
 // clean calendar of Zoom meetings, so nothing from Google is ever sent to him.
-async function googleCalendarItems({ from, to, knownZoomIds }) {
+async function googleCalendarItems({ from, to, knownZoomIds, knownEventIds = new Set() }) {
   const events = await gcal.listEvents({ from, to });
   return events
-    .filter((e) => !e.zoom_ids.some((id) => knownZoomIds.has(id)))
-    .map(({ zoom_ids, transparent, ...e }) => e);
+    // Events this app made for its own meetings are already shown as those meetings.
+    .filter((e) => !knownEventIds.has(e.event_id) && !e.zoom_ids.some((id) => knownZoomIds.has(id)))
+    .map(({ zoom_ids, transparent, event_id, ...e }) => e);
 }
 
 const ZOOM_ID_IN_LINK = /zoom\.us\/(?:j|my|w)\/(\d{8,})/i;
@@ -980,6 +1040,7 @@ app.get('/api/summary/month', async (req, res) => {
           from: new Date(monthStart.getTime() - 86400000),
           to: new Date(monthEnd.getTime() + 86400000),
           knownZoomIds,
+          knownEventIds: new Set(everyDeal.map((d) => d.google_event_id).filter(Boolean)),
         })
       : [];
 

@@ -197,8 +197,12 @@ function renderGoogleStatus() {
       ? '<a href="/auth/google" class="zoom-pill zoom-connect" title="Google stopped renewing the connection, or the calendar permission wasn\'t granted — reconnecting fixes both.">Reconnect Google Calendar</a>'
       : '<span class="zoom-pill zoom-off" title="Ask the Agent to reconnect it from their account.">Google Calendar disconnected — ask the Agent</span>';
   } else if (g.connected) {
+    // Connected before meetings could be written: reading works, adding needs one more approval.
+    const allowAdding = isAgent && !g.can_write
+      ? '<a href="/auth/google" class="zoom-pill zoom-connect" title="Lets meetings your Caller books appear on your Google Calendar. One more approval on Google\'s page.">Allow adding meetings</a>'
+      : '';
     el.innerHTML = isAgent
-      ? `<span class="zoom-pill zoom-on" title="Your Google Calendar is visible to the Caller only. It is not shown on your own calendar.">Shared with Caller · ${escapeHtml(g.email || 'Google')}</span><button id="gcal-disconnect" class="zoom-disconnect">Stop sharing</button>`
+      ? `<span class="zoom-pill zoom-on" title="${g.can_write ? 'Meetings your Caller books are added to this calendar, and the Caller can see it. ' : 'Visible to the Caller only. '}It is not shown on your own Schedule Hub calendar.">${g.can_write ? 'Syncing meetings' : 'Shared with Caller'} · ${escapeHtml(g.email || 'Google')}</span>${allowAdding}<button id="gcal-disconnect" class="zoom-disconnect">Stop sharing</button>`
       : `<span class="zoom-pill zoom-on" title="The Agent's Google Calendar, shown on the Summary calendar">Google · ${escapeHtml(g.email || 'connected')}</span>`;
     $('#gcal-disconnect')?.addEventListener('click', guardClick($('#gcal-disconnect'), async () => {
       if (!confirm('Stop sharing your Google Calendar with the Caller? Its events will disappear from their calendar until you connect it again.')) return;
@@ -928,7 +932,7 @@ async function renderMeetingsTab() {
         if (!val) return;
         const zoomOnly = String(btn.dataset.id).startsWith('zoom-');
         const meeting = zoomOnly ? deals.find((d) => String(d.id) === btn.dataset.id) : null;
-        await api(
+        const moved = await api(
           zoomOnly
             ? `/api/zoom-meetings/${btn.dataset.id.replace('zoom-', '')}/reschedule`
             : `/api/deals/${btn.dataset.id}/reschedule`,
@@ -942,6 +946,7 @@ async function renderMeetingsTab() {
             }),
           }
         );
+        if (moved?.calendar_warning) alert(moved.calendar_warning);
         inlineFormClosed();
         renderMeetingsTab();
       }));
@@ -1192,7 +1197,8 @@ async function openDealModal(id, opts = {}) {
       const endpoint = deal.stage === 'meeting_booked' ? 'reschedule' : 'schedule';
       const payload = { scheduled_at: sgInputToISO(time), scheduled_local: time, changed_by: currentUser() };
       if (zoomLink) payload.zoom_link = zoomLink;
-      await api(`/api/deals/${id}/${endpoint}`, { method: 'POST', body: JSON.stringify(payload) });
+      const booked = await api(`/api/deals/${id}/${endpoint}`, { method: 'POST', body: JSON.stringify(payload) });
+      if (booked?.calendar_warning) alert(booked.calendar_warning);
       refresh();
       openDealModal(id, { justBooked: true }); // straight on to sending the client the details
     }));
@@ -1480,6 +1486,7 @@ $('#contact-form').addEventListener('submit', async (e) => {
   $('#cf-submit').textContent = 'Add contact';
   renderZoomStatus();
   if (res.meeting_error) alert(`Contact added, but the meeting wasn't booked: ${res.meeting_error}\nOpen them from the Pipeline to try scheduling again.`);
+  else if (res.deal?.calendar_warning) alert(res.deal.calendar_warning);
   // A meeting was booked with the contact: the Caller sends the client the
   // details first, so offer that now instead of jumping away.
   if (res.deal?.scheduled_at && !res.meeting_error) {
@@ -2006,6 +2013,6 @@ async function startApp(info) {
   await startApp(info);
   if (zoomResult === 'connected') alert('Zoom connected.');
   else if (zoomResult === 'error') alert(`Zoom connection failed${failReason ? `: ${failReason}` : ' — check the server logs.'}`);
-  if (googleResult === 'connected') alert('Google Calendar connected. Your Caller can now see it — it will not appear on your own calendar.');
+  if (googleResult === 'connected') alert('Google Calendar connected. Meetings your Caller books will be added to it, and the Caller can see it — it will not appear on your own Schedule Hub calendar.');
   else if (googleResult === 'error') alert(`Google Calendar connection failed${failReason ? `: ${failReason}` : ' — check the server logs.'}`);
 })();
