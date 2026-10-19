@@ -1223,9 +1223,7 @@ async function openDealModal(id, opts = {}) {
 
     ${
       isAgent && (deal.stage === 'meeting_booked' || deal.outcome)
-        ? `<div class="section-head"><h2>${deal.outcome ? 'Meeting outcome' : 'Meeting follow-up'}</h2>${
-            deal.outcome ? '<span class="hint">You can change it until the Caller acts on it</span>' : ''
-          }</div>
+        ? `<div class="section-head"><h2>${deal.outcome ? 'Meeting outcome' : 'Meeting follow-up'}</h2></div>
     <div class="mactions">
       <select id="m-followup-outcome">${FOLLOWUP_OUTCOMES_CACHE.map(
         (o) => `<option value="${o.key}"${deal.outcome?.key === o.key ? ' selected' : ''}>${o.label}</option>`

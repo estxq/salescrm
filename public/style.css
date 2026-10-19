@@ -970,9 +970,9 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 .mactions select, .inline-zoom-action select, .attend-select, .attend-select-modal {
   appearance: none;
   -webkit-appearance: none;
-  padding: 6px 30px; /* equal both sides so the text sits dead centre and the arrow has its own room */
-  text-align: center;
-  text-align-last: center;
+  padding: 6px 30px 6px 14px; /* the words sit against the arrow on the right */
+  text-align: right;
+  text-align-last: right;
   border-radius: 999px;
   cursor: pointer;
   background-color: var(--card, #fff);
