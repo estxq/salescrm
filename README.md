@@ -290,10 +290,13 @@ your address when signing up.
 started (Meetings tab → each past row, or the deal window) the Agent picks *Attended* or
 *Not attended*, and can change it any time — current meetings, earlier meetings that were
 replaced by a new booking, and meetings booked directly in Zoom. Analytics' "Interviews
-attended" / "Not attended" count those answers, in the month the interview took place. A
-meeting with no answer keeps the old rule (an outcome was logged, so he went) and is counted
-in the month the outcome was logged; giving an answer overrides that. Stored in the
-`attendance` collection, one record per meeting (`lib/stats.js`); `POST /api/attendance`.
+attended" counts those answers. A meeting with no answer keeps the old rule (an outcome was
+logged, so he went); giving an answer overrides that. **Every Analytics count is dated by the
+interview's own (Zoom) date** — fixed, attended and the Not interested / Interested outcomes
+fall in the month the meeting takes place, never the day it was booked, marked or edited, and
+follow the meeting if it is later moved. (Reschedules are the exception: counted in the month
+the move was made.) Stored in the `attendance` collection, one record per meeting
+(`lib/stats.js`); `POST /api/attendance`.
 
 **Meetings booked in Schedule Hub are added to the Agent's Google Calendar.** When the
 Agent's Google Calendar is connected with permission to write, each meeting the Caller

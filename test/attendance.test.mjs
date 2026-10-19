@@ -44,14 +44,21 @@ chk('legacy meeting with an outcome shows attended but not "set"', row('Legacy')
 await A('/api/attendance', 'POST', { kind: 'deal', deal_id: dA.id, status: 'not_attended' });
 await A('/api/attendance', 'POST', { kind: 'deal', deal_id: dB.id, status: 'attended' });
 a = await an('2026-10'); chk('editing flips the analytics (no double count)', a.attended === base + 1 && a.not_attended === 1, JSON.stringify([a.attended, a.not_attended]));
-// An outcome logged under the old rule counts in the month it was LOGGED (now = Oct). Marking it
-// not attended moves it out of attended and into the month the meeting took place (Sep).
-const octAtt = (await an('2026-10')).attended, sepNot = (await an('2026-09')).not_attended;
+// Everything is dated by the meeting's own (Zoom) date, not the day the outcome or answer was entered
+// (here: today = Oct, meeting = 20 Sep).
+const sep = await an('2026-09'), oct = await an('2026-10');
+const fu = (x) => x.outcomes.find((o) => o.key === 'follow_up').count;
+chk('an outcome logged today for a September meeting counts in September', fu(sep) === 1 && fu(oct) === 0, JSON.stringify([fu(sep), fu(oct)]));
+chk('...and so does the old implied "attended"', sep.attended === 1, JSON.stringify(sep.attended));
+chk('...and "fixed" follows the meeting date too', sep.fixed === 1, JSON.stringify([sep.fixed, oct.fixed]));
+const octAtt = oct.attended, sepNot = sep.not_attended;
 await A('/api/attendance', 'POST', { kind: 'deal', deal_id: dL.id, status: 'not_attended' });
-chk("overriding a legacy 'attended' removes it from attended", (await an('2026-10')).attended === octAtt - 1, JSON.stringify([octAtt, (await an('2026-10')).attended]));
-chk('...and counts it as not attended in the month of the meeting', (await an('2026-09')).not_attended === sepNot + 1);
+chk('marking it not attended removes it from attended', (await an('2026-09')).attended === 0 && (await an('2026-09')).not_attended === sepNot + 1);
+chk('...without touching October', (await an('2026-10')).attended === octAtt);
 await A('/api/attendance', 'POST', { kind: 'deal', deal_id: dL.id, status: 'unset' });
-chk('clearing the answer falls back to the old rule', (await an('2026-10')).attended === octAtt && (await an('2026-09')).not_attended === sepNot);
+chk('clearing the answer falls back to the old rule', (await an('2026-09')).attended === 1 && (await an('2026-09')).not_attended === sepNot);
+// a meeting moved to another month follows its new date
+await C(`/api/deals/${dB.id}/reschedule`, 'POST', { scheduled_at: '2026-11-03T05:00:00Z', scheduled_local: '2026-11-03T13:00', changed_by: 'Cal' }).catch(() => {});
 // history (an earlier meeting on a deal replaced by a new booking)
 const dH = await book('Hist', '85555555', '2026-10-20T05:00:00Z'); await past(dH.id, '2026-10-02T05:00:00Z');
 await C(`/api/deals/${dH.id}/schedule`, 'POST', { scheduled_at: future, scheduled_local: new Date(new Date(future).getTime() + 8 * 3600e3).toISOString().slice(0, 16), zoom_link: 'https://zoom.us/j/85555556', changed_by: 'Cal' });
