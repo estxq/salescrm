@@ -695,6 +695,28 @@ function fmtDateOnly(iso) {
 const OUTCOME_LABELS = { not_interested: 'Not interested', follow_up: 'Interested' };
 const outcomeLabel = (o) => OUTCOME_LABELS[o?.key] || o?.label || '';
 
+// Browsers without CSS field-sizing keep a dropdown as wide as its longest option, which leaves a gap
+// beside shorter choices ("Attended"). Size those to the chosen word instead.
+function fitSelect(sel) {
+  if (CSS.supports?.('field-sizing', 'content')) return;
+  const probe = document.createElement('span');
+  const cs = getComputedStyle(sel);
+  probe.style.cssText = `position:absolute;visibility:hidden;white-space:nowrap;font:${cs.font}`;
+  probe.textContent = sel.options[sel.selectedIndex]?.text || '';
+  document.body.appendChild(probe);
+  sel.style.width = `${Math.ceil(probe.getBoundingClientRect().width) + 46}px`; // text + padding both sides
+  probe.remove();
+}
+function fitSelects(root = document) {
+  root.querySelectorAll('.mactions select, .attend-select, .attend-select-modal, .inline-zoom-action select').forEach((sel) => {
+    fitSelect(sel);
+    if (!sel.dataset.fit) {
+      sel.dataset.fit = '1';
+      sel.addEventListener('change', () => fitSelect(sel));
+    }
+  });
+}
+
 // A short confirmation that fades by itself, for actions that otherwise show no sign of having worked.
 let toastTimer;
 function showToast(message) {
@@ -830,6 +852,7 @@ async function renderMeetingsTab() {
       openDealModal(row.dataset.dealId || row.dataset.id);
     });
   });
+  fitSelects($('#meetings-body'));
   $$('#meetings-body .attend-select').forEach((sel) => {
     const d = deals.find((x) => String(x.id) === sel.dataset.id);
     sel.addEventListener('click', (e) => e.stopPropagation());
@@ -1238,6 +1261,7 @@ async function openDealModal(id, opts = {}) {
 
   $('#modal-body').innerHTML = body;
   $('#modal-overlay').hidden = false;
+  fitSelects($('#modal-body'));
   $('.attend-select-modal')?.addEventListener('change', (e) => saveAttendance(e.target, deal));
 
   if ($('#m-add-remark')) {

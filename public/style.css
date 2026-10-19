@@ -973,6 +973,7 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
   padding: 6px 30px 6px 14px; /* the words sit against the arrow on the right */
   text-align: right;
   text-align-last: right;
+  field-sizing: content; /* as wide as the chosen word, so "Attended" doesn't float in the width of "Not attended" */
   border-radius: 999px;
   cursor: pointer;
   background-color: var(--card, #fff);
