@@ -690,6 +690,36 @@ function fmtDateOnly(iso) {
   return sgDate(iso, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+// Did the interview happen? The Agent answers per meeting, on any that has already started,
+// and can change it later. The Analytics page counts from this.
+function attendanceSelectHtml(d, cls = 'attend-select') {
+  const v = d.attendance || '';
+  const opt = (val, label) => `<option value="${val}"${v === val ? ' selected' : ''}>${label}</option>`;
+  return `<select class="${cls}" data-id="${d.id}" title="Did this interview happen? Feeds your Analytics.">${opt('', 'Attendance…')}${opt('attended', 'Attended')}${opt('not_attended', 'Not attended')}</select>`;
+}
+
+// What to send for a meeting row/deal: the server works out the rest itself.
+function attendancePayload(d, status) {
+  const base = { status: status || 'unset' };
+  if (d.source === 'zoom') return { ...base, kind: 'zoom', zoom_id: String(d.id).replace('zoom-', ''), scheduled_at: d.scheduled_at };
+  if (d.source === 'history') return { ...base, kind: 'history', deal_id: d.deal_id, index: Number(String(d.id).split('-')[2]) };
+  return { ...base, kind: 'deal', deal_id: d.id };
+}
+
+async function saveAttendance(select, d) {
+  const previous = d.attendance || '';
+  select.disabled = true;
+  try {
+    await api('/api/attendance', { method: 'POST', body: JSON.stringify(attendancePayload(d, select.value)) });
+    d.attendance = select.value || null;
+  } catch (err) {
+    select.value = previous;
+    alert(err.message);
+  } finally {
+    select.disabled = false;
+  }
+}
+
 async function renderMeetingsTab() {
   const deals = await api(`/api/meetings?when=${meetingsWhen}`);
   if (!meetingsSortAsc) deals.reverse();
@@ -723,7 +753,7 @@ async function renderMeetingsTab() {
         <div class="mt-date"><div>${fmtDateOnly(d.scheduled_at)}</div><div class="mt-time">${fmtTime(d.scheduled_at)}</div></div>
         <div class="mt-attendee">${isZoomOnly ? '' : avatarHtml(d.contact?.name)}</div>
         <div class="mt-owner">${isZoomOnly ? '<span class="hint">Zoom</span>' : avatarHtml(d.owner)}</div>
-        <div class="mt-actions">${
+        <div class="mt-actions">${currentRole === 'agent' && isPast ? attendanceSelectHtml(d) : ''}${
           isHistory
             ? ''
             : isZoomOnly
@@ -770,11 +800,17 @@ async function renderMeetingsTab() {
         e.target.closest('.resched-btn') ||
         e.target.closest('.inline-resched') ||
         e.target.closest('.mt-whatsapp-btn') ||
-        e.target.closest('.crm-delete-btn')
+        e.target.closest('.crm-delete-btn') ||
+        e.target.closest('.attend-select')
       )
         return;
       openDealModal(row.dataset.dealId || row.dataset.id);
     });
+  });
+  $$('#meetings-body .attend-select').forEach((sel) => {
+    const d = deals.find((x) => String(x.id) === sel.dataset.id);
+    sel.addEventListener('click', (e) => e.stopPropagation());
+    sel.addEventListener('change', () => saveAttendance(sel, d));
   });
   // Zoom-only meetings (booked directly in Zoom, not via the CRM pipeline)
   // have no deal to attach state to — both actions just raise a
@@ -1156,6 +1192,13 @@ async function openDealModal(id, opts = {}) {
     }
 
     ${
+      isAgent && deal.scheduled_at && new Date(deal.scheduled_at).getTime() <= Date.now()
+        ? `<div class="section-head"><h2>Interview attendance</h2><span class="hint">Counts toward Analytics — change it any time</span></div>
+    <div class="mactions">${attendanceSelectHtml(deal, 'attend-select-modal')}</div>`
+        : ''
+    }
+
+    ${
       isAgent && (deal.stage === 'meeting_booked' || deal.outcome)
         ? `<div class="section-head"><h2>${deal.outcome ? 'Meeting outcome' : 'Meeting follow-up'}</h2>${
             deal.outcome ? '<span class="hint">You can change it until the Caller acts on it</span>' : ''
@@ -1174,6 +1217,7 @@ async function openDealModal(id, opts = {}) {
 
   $('#modal-body').innerHTML = body;
   $('#modal-overlay').hidden = false;
+  $('.attend-select-modal')?.addEventListener('change', (e) => saveAttendance(e.target, deal));
 
   if ($('#m-add-remark')) {
     $('#m-add-remark').addEventListener('click', guardClick($('#m-add-remark'), async () => {
@@ -1573,7 +1617,8 @@ async function renderAnalyticsTab() {
     </div>`;
   $('#stat-cards').innerHTML =
     card('Interviews fixed', 'Put in the diary', a.fixed, a.previous.fixed) +
-    card('Interviews attended', 'Ones you went for and logged an outcome on', a.attended, a.previous.attended) +
+    card('Interviews attended', 'Ones you marked as attended', a.attended, a.previous.attended) +
+    card('Not attended', 'Ones you marked as not attended', a.not_attended, a.previous.not_attended) +
     card('Reschedules made', 'Times a meeting was moved to a new time', a.rescheduled, a.previous.rescheduled);
 
   const max = Math.max(1, ...a.outcomes.map((o) => o.count));
@@ -1593,12 +1638,12 @@ async function renderAnalyticsTab() {
   const sum = (key) => a.months.reduce((total, m) => total + m[key], 0);
   $('#months-title').textContent = `Monthly ${selYear}`;
   $('#months-table').innerHTML =
-    `<thead><tr><th>Month</th><th>Fixed</th><th>Attended</th><th>Rescheduled</th><th>Not interested</th><th>Another meeting</th></tr></thead><tbody>${a.months
+    `<thead><tr><th>Month</th><th>Fixed</th><th>Attended</th><th>Not attended</th><th>Rescheduled</th><th>Not interested</th><th>Another meeting</th></tr></thead><tbody>${a.months
       .map(
         (m) =>
-          `<tr data-month="${m.month}" class="${m.month === a.month ? 'selected' : ''}"><th>${monthName(m.month, { month: 'long' })}</th>${num(m.fixed)}${num(m.attended)}${num(m.rescheduled)}${num(m.not_interested)}${num(m.follow_up)}</tr>`
+          `<tr data-month="${m.month}" class="${m.month === a.month ? 'selected' : ''}"><th>${monthName(m.month, { month: 'long' })}</th>${num(m.fixed)}${num(m.attended)}${num(m.not_attended)}${num(m.rescheduled)}${num(m.not_interested)}${num(m.follow_up)}</tr>`
       )
-      .join('')}</tbody><tfoot><tr><th>${selYear} total</th>${num(sum('fixed'))}${num(sum('attended'))}${num(sum('rescheduled'))}${num(sum('not_interested'))}${num(sum('follow_up'))}</tr></tfoot>`;
+      .join('')}</tbody><tfoot><tr><th>${selYear} total</th>${num(sum('fixed'))}${num(sum('attended'))}${num(sum('not_attended'))}${num(sum('rescheduled'))}${num(sum('not_interested'))}${num(sum('follow_up'))}</tr></tfoot>`;
   $$('#months-table tbody tr').forEach((row) =>
     row.addEventListener('click', () => {
       analyticsMonth = row.dataset.month;

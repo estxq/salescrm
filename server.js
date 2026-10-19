@@ -74,7 +74,7 @@ import {
 } from './lib/notify.js';
 import { listNotifications, markRead, markDone, markAllRead, unreadCount, deleteNotificationsFor, deleteNotification, createNotification, resolveZoomRescheduleRequests, findOpenNotification, reviseNotification } from './lib/notifications.js';
 import { readZoomLog, syncZoomLog, setZoomOutcome, forgetZoomMeeting } from './lib/zoomlog.js';
-import { recordOnce, recordEvent, recordZoomMeetingsSeen, forgetMeeting, backfillDealRefs, monthlyAnalytics } from './lib/stats.js';
+import { recordOnce, recordEvent, recordZoomMeetingsSeen, forgetMeeting, backfillDealRefs, monthlyAnalytics, attendanceMap, attendanceStatus, setAttendance } from './lib/stats.js';
 import { buildIcs, googleCalendarLink } from './lib/calendar.js';
 import { formatWhen, sgMonthRange, sgNow, TEAM_TZ_PARAM, wallClockProblem } from './lib/tz.js';
 import { checkAndSendReminders } from './lib/reminders.js';
@@ -223,10 +223,35 @@ async function pastMeetingsOf(deals) {
         owner: d.owner,
         outcome: h.outcome || null,
         reschedule_requested: null,
+        stat_ref: h.stat_ref || null,
       })
     );
   }
   return out;
+}
+
+// The key a meeting's attendance is stored under. A deal's current meeting uses its stat_ref
+// (legacy deals get theirs from backfillDealRefs); an earlier meeting on a deal uses the ref it
+// had when it was replaced, or its position in the deal's history if it predates that; a
+// Zoom-only meeting uses its Zoom id.
+const attendanceRef = {
+  deal: (d) => d.stat_ref || `deal-${d.id}-legacy`,
+  history: (d, i) => d.past_meetings?.[i]?.stat_ref || `hist-${d.id}-${i}`,
+  zoom: (id) => `zoom-${id}`,
+};
+
+// Adds `attendance` ('attended' | 'not_attended' | null) and `attendance_set` (true when the
+// Agent chose it himself rather than it being implied by a logged outcome) to meeting rows.
+async function withAttendance(items) {
+  const answers = await attendanceMap();
+  return items.map((m) => {
+    let ref;
+    if (m.source === 'zoom') ref = attendanceRef.zoom(String(m.id).replace('zoom-', ''));
+    else if (m.source === 'history') ref = m.stat_ref || `hist-${m.deal_id}-${String(m.id).split('-')[2]}`;
+    else ref = attendanceRef.deal(m);
+    const rec = answers.get(ref);
+    return { ...m, attendance: attendanceStatus(rec, m.outcome), attendance_set: Boolean(rec) };
+  });
 }
 
 // Books a meeting on a deal: creates the real Zoom meeting when Zoom is
@@ -619,17 +644,58 @@ app.get('/api/meetings', async (req, res) => {
   const history = (await pastMeetingsOf(await listDeals())).filter(inRange);
   const combined = withContacts.concat(zoomOnly, history);
   combined.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
-  res.json(combined);
+  res.json(await withAttendance(combined));
 });
 
 app.get('/api/deals/:id', async (req, res) => {
   const deal = await getDeal(req.params.id);
   if (!deal) return res.status(404).json({ error: 'not found' });
+  const [withAtt] = await withAttendance([deal]);
   res.json({
-    ...deal,
+    ...withAtt,
     contact: await getContact(deal.contact_id),
     activities: await listActivities({ deal_id: deal.id }),
   });
+});
+
+// The Agent states whether an interview was attended. Works on any meeting that has
+// already started — current, earlier on the same deal, or booked directly in Zoom — and
+// can be changed any time; the Analytics page follows it. status "unset" clears it.
+app.post('/api/attendance', agentOnly, async (req, res) => {
+  const { kind, deal_id, index, zoom_id, status } = req.body || {};
+  if (!['attended', 'not_attended', 'unset'].includes(status)) return res.status(400).json({ error: 'status must be attended, not_attended or unset' });
+  let ref;
+  let at;
+  if (kind === 'zoom') {
+    if (!/^\d+$/.test(String(zoom_id))) return res.status(400).json({ error: 'zoom_id required' });
+    ref = attendanceRef.zoom(zoom_id);
+    const logged = (await readZoomLog()).find((e) => String(e.zoom_id) === String(zoom_id));
+    at = logged?.start_time || req.body.scheduled_at;
+  } else if (kind === 'deal' || kind === 'history') {
+    let deal = await getDeal(deal_id);
+    if (!deal) return res.status(404).json({ error: 'not found' });
+    if (kind === 'deal') {
+      if (!deal.scheduled_at) return res.status(400).json({ error: 'This deal has no meeting.' });
+      if (!deal.stat_ref) {
+        await backfillDealRefs([deal]);
+        deal = await getDeal(deal_id);
+      }
+      ref = attendanceRef.deal(deal);
+      at = deal.scheduled_at;
+    } else {
+      const h = deal.past_meetings?.[Number(index)];
+      if (!h) return res.status(404).json({ error: 'not found' });
+      ref = attendanceRef.history(deal, Number(index));
+      at = h.scheduled_at;
+    }
+  } else {
+    return res.status(400).json({ error: 'kind must be deal, history or zoom' });
+  }
+  const when = new Date(at).getTime();
+  if (Number.isNaN(when)) return res.status(400).json({ error: 'meeting time unknown' });
+  if (when > Date.now()) return res.status(400).json({ error: "That meeting hasn't happened yet." });
+  await setAttendance(ref, status === 'unset' ? null : status, new Date(when).toISOString(), req.user.name);
+  res.json({ ref, attendance: status === 'unset' ? null : status });
 });
 
 app.post('/api/deals/:id/stage', async (req, res) => {

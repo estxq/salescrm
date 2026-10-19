@@ -286,6 +286,15 @@ manages the deployment.
 Not included: email verification (there's no email service), so double-check
 your address when signing up.
 
+**Interview attendance is the Agent's own answer.** On any meeting that has already
+started (Meetings tab → each past row, or the deal window) the Agent picks *Attended* or
+*Not attended*, and can change it any time — current meetings, earlier meetings that were
+replaced by a new booking, and meetings booked directly in Zoom. Analytics' "Interviews
+attended" / "Not attended" count those answers, in the month the interview took place. A
+meeting with no answer keeps the old rule (an outcome was logged, so he went) and is counted
+in the month the outcome was logged; giving an answer overrides that. Stored in the
+`attendance` collection, one record per meeting (`lib/stats.js`); `POST /api/attendance`.
+
 **Meetings booked in Schedule Hub are added to the Agent's Google Calendar.** When the
 Agent's Google Calendar is connected with permission to write, each meeting the Caller
 books, moves, deletes or cancels (including the Agent logging "Not interested", or a contact
