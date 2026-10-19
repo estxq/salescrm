@@ -9,13 +9,26 @@ external chat integration; it's a single shared source of truth.
 ## What's in it
 
 - **Accounts and teams**: nothing loads until you log in. Someone
-  **creates a team** (email, password, and whether they're the Caller or the
-  Agent) and gets an **invite code**; their teammate chooses **Join a team**,
-  enters the code and takes the other seat. A team is one Caller and one
-  Agent — a third person can't join, and anyone else who wants to use the app
-  makes their own team. Teams are fully separate: contacts, deals,
-  notifications and the Zoom connection are stored per team, and the data
-  layer refuses to read them without a team, so one team can't see another's.
+  **creates a team** (email, password, whether they're a Caller or an Agent, and
+  two sliders for how many **Callers** (1–5) and **Agents** (1–10) the team will
+  have) and gets an **invite code**; everyone else chooses **Join a team**, enters
+  the code and takes a free seat of the role they pick. When the seats are full
+  nobody else can join, and anyone else who wants to use the app makes their own
+  team. The size can be changed later (account menu → **Team size…**, Callers
+  only): it can grow any time and shrink down to who is already in. Teams are fully
+  separate: contacts, deals, notifications and the Zoom connections are stored
+  per team, and the data layer refuses to read them without a team, so one team
+  can't see another's.
+- **Several Agents in one team**: every Agent connects **their own** Zoom and
+  Google Calendar, and sees only the meetings that are with them. A Caller sees
+  everything and picks **which Agent** each meeting is with (a dropdown on the
+  new-contact form and in the meeting window; with a single Agent it's automatic).
+  The Zoom meeting is then created on *that Agent's* Zoom account and tied to them,
+  the Google Calendar event goes on *their* calendar, and the notification goes to
+  *them* alone. On the Summary calendar and the Meetings list a Caller can tick
+  which Agents to show — one, some or all at once; each Agent has a colour, and the
+  Agents' Google Calendars appear (read-only) next to their Zoom meetings. An
+  Agent's Analytics count only their own interviews.
 - **Role-based views**: your role is fixed by your account, and it's enforced
   on the server, not just by hiding tabs. Caller sees Summary, Meetings,
   Contacts, Pipeline and handles calling and scheduling (adding contacts,
@@ -242,8 +255,12 @@ lock an account for 15 minutes.
 
 Accounts and teams live in shared `accounts` / `teams` collections; everything
 else is keyed per team (`t<teamId>:contacts` and so on, `t1_contacts.json`
-locally). The connected Zoom account is per team too — it's that team's
-agent's own account.
+locally). Connections are per **Agent**: `t<teamId>:zoom_account:a<agentId>` (and the
+same for Google Calendar and an Agent's own Zoom app). A team made before teams could have
+several Agents kept one connection under `t<teamId>:zoom_account`; it belongs to the
+team's first Agent, who picks it up automatically (and it is moved to their own key
+on the next save). A deal carries `agent_id`; one without it (older, or not booked yet)
+belongs to the team's only Agent, or to nobody until a Caller chooses.
 
 **Data from before teams existed** (the original single-team data, including
 its Zoom connection) is handed to the **first team ever created**, once. On a
@@ -251,18 +268,20 @@ deployment that already has data, sign up right after deploying so it goes to
 you. The old un-prefixed copies are left in place as a backup (the Zoom token
 is moved, not copied).
 
-**Zoom is per team.** A new team starts with no Zoom connection; its Agent
-clicks "Connect Zoom" and signs in with their own account, and every meeting
-that team books (and every Zoom-only interview it shows) comes from that
-account. One thing outside this app: a Zoom OAuth app in development mode can
+**Zoom is per Agent.** A new Agent starts with no Zoom connection; they
+click "Connect Zoom" and sign in with their own account, and every meeting
+booked with them (and every Zoom-only interview shown for them) comes from that
+account — never another Agent's, whoever is asking. An Agent who hasn't connected can
+still be booked with a pasted Zoom link. One thing outside this app: a Zoom OAuth app in development mode can
 only be authorised by the Zoom account that created it — for other teams'
 agents to connect their own Zoom, the app has to be published on the Zoom
 Marketplace.
 
 **Leaving a team** (account menu → Leave team) removes you from it but keeps
-your login: the team, its data and its invite code stay, your teammate gets a
-notification and sees the invite code again for the free seat, and you land on a
-screen to join or start another team.
+your login: the team, its data and its invite code stay, your teammates get a
+notification and see the invite code again for the free seat, and you land on a
+screen to join or start another team. An Agent's own Zoom and Google Calendar
+connections (personal accounts) are removed when they leave or delete their login.
 
 **Deleting your account** (account menu → Delete my account, confirmed with
 your password) removes only your login. The team's contacts, meetings, Zoom
@@ -313,8 +332,8 @@ shows the Agent's other Google events. Needs the `.../auth/calendar.events` scop
 Google consent screen; an older read-only connection keeps working for viewing and the
 Agent sees an "Allow adding meetings" button to approve writing.
 
-**Who can connect which Zoom account.** Every team connects its own Agent's Zoom, kept
-separately per team. A Zoom app that isn't published only lets in accounts inside its owner's
+**Who can connect which Zoom account.** Every Agent connects their own Zoom, kept
+separately per Agent. A Zoom app that isn't published only lets in accounts inside its owner's
 Zoom account, so there are three ways to cover different teams: publish one Zoom app (best
 long-term — one Client ID for everyone); add extra shared apps in the environment
 (`ZOOM_CLIENT_ID_2`… up to `_5`, picked in the Zoom menu); or let a team save its **own**

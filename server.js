@@ -25,9 +25,14 @@ import {
   resetPassword,
   setResetNotificationId,
   formatResetCode,
+  teamAgents,
+  agentOfDeal,
+  firstAgentId,
+  setTeamSeats,
+  teamMembers,
 } from './lib/accounts.js';
 import { startSession, endSession, sessionAccountId, setOAuthState, takeOAuthState } from './lib/session.js';
-import { withTeam } from './lib/context.js';
+import { withTeam, withAgent, currentTeamId } from './lib/context.js';
 import crypto from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import {
@@ -74,7 +79,7 @@ import {
   notifyRemark,
 } from './lib/notify.js';
 import { listNotifications, markRead, markDone, markAllRead, unreadCount, deleteNotificationsFor, deleteNotification, createNotification, resolveZoomRescheduleRequests, findOpenNotification, reviseNotification } from './lib/notifications.js';
-import { readZoomLog, syncZoomLog, setZoomOutcome, forgetZoomMeeting } from './lib/zoomlog.js';
+import { readZoomLog, readAgentZoomLog, ownerOfEntry, syncZoomLog, setZoomOutcome, forgetZoomMeeting } from './lib/zoomlog.js';
 import { recordOnce, recordEvent, recordZoomMeetingsSeen, forgetMeeting, backfillDealRefs, monthlyAnalytics, attendanceMap, attendanceStatus, setAttendance, recordRescheduleRequest, withdrawRescheduleCount, settleRescheduleRequest } from './lib/stats.js';
 import { buildIcs, googleCalendarLink } from './lib/calendar.js';
 import { formatWhen, sgMonthRange, sgNow, TEAM_TZ_PARAM, wallClockProblem } from './lib/tz.js';
@@ -110,10 +115,20 @@ app.get('/api/version', (req, res) => {
 // Best-effort: free up the agent's Zoom account when a deal falls through.
 // Awaited on purpose — on Vercel the function can be frozen the moment the
 // response goes out, which would silently leave the Zoom meeting behind.
-async function cleanupZoomMeeting(dealBefore) {
+//
+// Every Agent has their own Zoom account, so a meeting is always removed from the Zoom of the Agent it was
+// booked with (`agentId`, else the deal's own Agent) — never another Agent's, whoever is asking.
+const inAgent = (agentId, fn) => withAgent(agentId, fn);
+const roster = () => teamAgents(currentTeamId());
+
+async function cleanupZoomMeeting(dealBefore, agentId) {
   if (!dealBefore?.zoom_meeting_id) return;
+  const owner = agentId !== undefined ? agentId : await agentOfDeal(dealBefore);
+  if (owner == null) return;
   try {
-    if (await zoom.isConnected()) await zoom.deleteMeeting(dealBefore.zoom_meeting_id);
+    await inAgent(owner, async () => {
+      if (await zoom.isConnected()) await zoom.deleteMeeting(dealBefore.zoom_meeting_id);
+    });
   } catch (err) {
     console.error('[zoom] cleanup failed', err.message);
   }
@@ -124,6 +139,12 @@ async function cleanupZoomMeeting(dealBefore) {
 // all is well or when there's no calendar to update, or a short message the Caller
 // is shown when the meeting is booked but the calendar couldn't be updated.
 async function syncGoogleEvent(deal, contact, eventId) {
+  const owner = await agentOfDeal(deal); // the event goes on the calendar of the Agent the meeting is with
+  if (owner == null) return null;
+  return inAgent(owner, () => syncGoogleEventAs(deal, contact, eventId));
+}
+
+async function syncGoogleEventAs(deal, contact, eventId) {
   const st = await gcal.status();
   if (!st.connected) return null;
   if (st.needs_reconnect) return 'Booked, but not added to Google Calendar: the Agent needs to reconnect it.';
@@ -151,11 +172,16 @@ async function syncGoogleEvent(deal, contact, eventId) {
 
 // Removes the mirrored event when a meeting is cancelled. Best-effort, awaited
 // for the same reason as cleanupZoomMeeting.
-async function dropGoogleEvent(deal) {
+async function dropGoogleEvent(deal, agentId) {
   if (!deal?.google_event_id) return;
+  const owner = agentId !== undefined ? agentId : await agentOfDeal(deal);
   try {
-    const st = await gcal.status();
-    if (st.connected && !st.needs_reconnect && st.can_write) await gcal.deleteEvent(deal.google_event_id);
+    if (owner != null) {
+      await inAgent(owner, async () => {
+        const st = await gcal.status();
+        if (st.connected && !st.needs_reconnect && st.can_write) await gcal.deleteEvent(deal.google_event_id);
+      });
+    }
   } catch (err) {
     console.error('[gcal] delete failed', err.message);
   }
@@ -165,7 +191,23 @@ async function dropGoogleEvent(deal) {
 // Meetings the agent booked directly in Zoom (interviews, etc.) rather than
 // through the CRM pipeline — shown read-only alongside CRM meetings so the
 // Meetings tab reflects the agent's real calendar, not just sales deals.
-async function getZoomOnlyMeetings(linkedZoomMeetingIds) {
+//
+// One Agent's own Zoom at a time (`agentId`; an Agent calling this passes their own id). Callers who
+// look at several Agents use zoomOnlyForAgents() below.
+async function getZoomOnlyMeetings(linkedZoomMeetingIds, agentId) {
+  if (agentId == null) return [];
+  const agentName = (await roster()).find((a) => a.id === agentId)?.name || null;
+  const items = await inAgent(agentId, () => getZoomOnlyMeetingsAs(linkedZoomMeetingIds));
+  return items.map((m) => ({ ...m, agent_id: agentId, agent_name: agentName }));
+}
+
+async function zoomOnlyForAgents(linkedZoomMeetingIds, agentIds) {
+  const out = [];
+  for (const id of agentIds) out.push(...(await getZoomOnlyMeetings(linkedZoomMeetingIds, id)));
+  return out;
+}
+
+async function getZoomOnlyMeetingsAs(linkedZoomMeetingIds) {
   if (!(await zoom.isConnected())) return [];
 
   // Zoom's list is only what's still upcoming. If it can't be reached, fall back
@@ -182,7 +224,7 @@ async function getZoomOnlyMeetings(linkedZoomMeetingIds) {
     log = await syncZoomLog(live);
   } else {
     const now = Date.now();
-    const entries = await readZoomLog();
+    const entries = await readAgentZoomLog();
     log = { byId: new Map(entries.map((e) => [String(e.zoom_id), e])), past: entries.filter((e) => new Date(e.start_time).getTime() <= now) };
   }
 
@@ -232,6 +274,7 @@ async function getZoomOnlyMeetings(linkedZoomMeetingIds) {
 async function pastMeetingsOf(deals) {
   const out = [];
   for (const d of deals) {
+    const agentId = await agentOfDeal(d);
     const contact = (d.past_meetings || []).length ? await getContact(d.contact_id) : null;
     (d.past_meetings || []).forEach((h, i) =>
       out.push({
@@ -245,6 +288,7 @@ async function pastMeetingsOf(deals) {
         outcome: h.outcome || null,
         reschedule_requested: null,
         stat_ref: h.stat_ref || null,
+        agent_id: agentId,
       })
     );
   }
@@ -279,31 +323,67 @@ async function withAttendance(items) {
 // connected (or uses the manual link), stamps the deal, and tells the other
 // role. Shared by "schedule" on an existing deal and "add contact + schedule".
 // Throws an error carrying an HTTP status so each caller can report it.
-async function bookMeeting(deal, contact, { scheduled_at, zoom_link, changed_by }) {
+// Which Agent a booking is with. The Caller picks one when the team has several; with a single Agent
+// that Agent is used without asking; a deal that already has one keeps it. Several Agents and no choice
+// is an error, never a guess. (Nobody to book with at all — no Agent has joined yet — is allowed only with
+// a hand-typed Zoom link, and the meeting then belongs to nobody until an Agent is chosen.)
+async function resolveBookingAgent(requested, deal) {
+  const agents = await roster();
+  if (requested != null && requested !== '') {
+    const id = Number(requested);
+    if (!agents.some((a) => a.id === id)) throw Object.assign(new Error('That Agent is not in this team.'), { status: 400 });
+    return id;
+  }
+  const current = deal ? await agentOfDeal(deal) : null;
+  if (current != null) return current;
+  if (agents.length === 1) return agents[0].id;
+  if (agents.length === 0) return null;
+  throw Object.assign(new Error('Choose which Agent this meeting is with.'), { status: 400 });
+}
+
+async function bookMeeting(deal, contact, { scheduled_at, zoom_link, changed_by, agent_id }) {
+  const agentId = await resolveBookingAgent(agent_id, deal);
+  const previousAgent = await agentOfDeal(deal); // who held the meeting this deal already had, if any
   const previousMeetingId = deal.zoom_meeting_id; // a meeting this deal already had, if any
   let link = zoom_link;
   let meetingId = null;
-  if (!link && (await zoom.isConnected())) {
+  // The Zoom meeting is created on the chosen Agent's own account, and only theirs.
+  if (!link && agentId != null && (await inAgent(agentId, () => zoom.isConnected()))) {
     try {
-      const meeting = await zoom.createMeeting({ topic: `Call with ${contact?.name || 'client'}`, startTime: scheduled_at });
+      const meeting = await inAgent(agentId, () =>
+        zoom.createMeeting({ topic: `Call with ${contact?.name || 'client'}`, startTime: scheduled_at })
+      );
       link = meeting.joinUrl;
       meetingId = meeting.id;
     } catch (err) {
       throw Object.assign(new Error(`Zoom meeting creation failed: ${err.message}`), { status: 502 });
     }
   }
-  if (!link) throw Object.assign(new Error('zoom_link required (or connect Zoom to auto-generate one)'), { status: 400 });
+  if (!link) {
+    const who = agentId != null ? (await roster()).find((a) => a.id === agentId)?.name : null;
+    throw Object.assign(
+      new Error(
+        who
+          ? `${who} has not connected Zoom, so no meeting can be created on their account. Paste a Zoom link, or ask ${who} to connect Zoom.`
+          : 'zoom_link required (or connect Zoom to auto-generate one)'
+      ),
+      { status: 400 }
+    );
+  }
 
-  const booked = await scheduleMeeting(deal.id, { zoom_link: link, zoom_meeting_id: meetingId, scheduled_at, changed_by });
+  const booked = await scheduleMeeting(deal.id, { zoom_link: link, zoom_meeting_id: meetingId, scheduled_at, changed_by, agent_id: agentId });
   // Scheduling again on a deal that already had a Zoom meeting replaces it:
-  // delete the old one so only the new meeting is left in the agent's Zoom.
-  if (previousMeetingId && previousMeetingId !== meetingId) await cleanupZoomMeeting({ zoom_meeting_id: previousMeetingId });
+  // delete the old one so only the new meeting is left — in the Agent's Zoom it was on.
+  if (previousMeetingId && previousMeetingId !== meetingId) await cleanupZoomMeeting({ zoom_meeting_id: previousMeetingId }, previousAgent);
   await recordOnce('fixed', booked.stat_ref);
   await notifyScheduled(booked, changed_by);
   // A meeting still ahead is being replaced, so move its calendar event; one that already
   // happened is history, so it keeps its event and this one gets a new event of its own.
   const held = deal.outcome || (deal.scheduled_at && new Date(deal.scheduled_at).getTime() <= Date.now());
-  const calendar_warning = await syncGoogleEvent(booked, contact, held ? null : deal.google_event_id);
+  // Moved to a different Agent: the old Agent's calendar loses the event, the new one gets its own.
+  const agentChanged = previousAgent != null && previousAgent !== agentId;
+  if (agentChanged && !held) await dropGoogleEvent(deal, previousAgent);
+  const calendar_warning = await syncGoogleEvent(booked, contact, held || agentChanged ? null : deal.google_event_id);
   const fresh = (await getDeal(booked.id)) || booked; // now carrying the calendar event id
   return calendar_warning ? { ...fresh, calendar_warning } : fresh;
 }
@@ -384,9 +464,27 @@ app.post('/api/auth/team', async (req, res) => {
 });
 
 // Leave the team but keep the login.
+// An Agent's Zoom and Google Calendar are their own personal accounts: when they leave the team (or delete
+// their login) those connections go with them, so nothing of theirs lingers for someone else to use.
+async function dropAgentConnections(left, accountId) {
+  if (left?.role !== 'agent') return;
+  await withTeam(left.teamId, () =>
+    withAgent(accountId, async () => {
+      for (const step of [zoom.disconnect, zoom.removeCustomApp, gcal.disconnect]) {
+        try {
+          await step();
+        } catch (err) {
+          console.error('[leave] could not clear a connection', err.message);
+        }
+      }
+    })
+  );
+}
+
 app.post('/api/auth/leave', async (req, res) => {
   const account = await sessionAccount(req, res);
   const left = await leaveTeam(account);
+  await dropAgentConnections(left, account.id);
   await withTeam(left.teamId, () =>
     createNotification({
       type: 'member_left',
@@ -400,6 +498,7 @@ app.post('/api/auth/leave', async (req, res) => {
 app.delete('/api/auth/account', async (req, res) => {
   const account = await sessionAccount(req, res);
   const left = await deleteAccount(account, req.body?.password);
+  await dropAgentConnections(left, account.id);
   if (left) {
     await withTeam(left.teamId, () =>
       createNotification({
@@ -432,7 +531,7 @@ async function checkAllTeamsReminders() {
     // Note any Zoom-only interviews before they pass and drop out of Zoom's list.
     try {
       const linked = new Set((await listDeals()).filter((d) => d.zoom_meeting_id).map((d) => d.zoom_meeting_id));
-      await getZoomOnlyMeetings(linked);
+      for (const a of await roster()) await getZoomOnlyMeetings(linked, a.id);
     } catch (err) {
       console.error('[stats] zoom sync failed', err.message);
     }
@@ -462,7 +561,7 @@ app.use(async (req, res, next) => {
       if (key in req.body) req.body[key] = account.name;
     }
   }
-  withTeam(account.team_id, next);
+  withTeam(account.team_id, () => withAgent(account.role === 'agent' ? account.id : null, next));
 });
 
 // Server-side role check for the routes each role's page is built around, so
@@ -475,8 +574,98 @@ function requireRole(role) {
     next();
   };
 }
+// With exactly one Agent in the team every new deal is theirs without anyone choosing.
+async function soleAgentId() {
+  const agents = await roster();
+  return agents.length === 1 ? agents[0].id : null;
+}
+
+// Whose Zoom a Zoom-only meeting is on, when a Caller acts on it: the Agent the page says, else the one the
+// meeting was remembered under, else the team's only Agent. Never a guess between several.
+async function zoomMeetingOwner(zoomId, requested) {
+  const agents = await roster();
+  let id = requested != null && requested !== '' ? Number(requested) : null;
+  if (id == null) {
+    const logged = (await readZoomLog()).find((e) => String(e.zoom_id) === String(zoomId));
+    if (logged) id = await ownerOfEntry(logged);
+  }
+  if (id == null && agents.length === 1) id = agents[0].id;
+  if (id == null || !agents.some((a) => a.id === id)) {
+    throw Object.assign(new Error("Say which Agent's Zoom this meeting is on."), { status: 400 });
+  }
+  return id;
+}
+
 const callerOnly = requireRole('caller');
 const agentOnly = requireRole('agent');
+
+// ---------- Who may see what ----------
+// A team can have several Agents. Each Agent sees only the meetings (and so the contacts) that are with
+// them; Callers see all of the team's, and can narrow the view to some Agents with ?agents=1,2.
+const isAgent = (req) => req.user.role === 'agent';
+
+async function dealsVisibleTo(req, deals) {
+  if (!isAgent(req)) return deals;
+  const mine = [];
+  for (const d of deals) if ((await agentOfDeal(d)) === req.user.id) mine.push(d);
+  return mine;
+}
+
+// Contacts an Agent may see: the ones with a meeting (or a deal) assigned to them.
+async function contactIdsOf(req, { includeDeleted = false } = {}) {
+  const deals = await dealsVisibleTo(req, await listDeals({ includeDeleted }));
+  return new Set(deals.map((d) => d.contact_id));
+}
+
+// Which Agents a Caller is looking at: every Agent unless ?agents= lists some.
+async function selectedAgentIds(req) {
+  const ids = (await roster()).map((a) => a.id);
+  if (isAgent(req)) return [req.user.id];
+  const asked = String(req.query.agents ?? '').split(',').map((s) => s.trim()).filter(Boolean).map(Number);
+  return req.query.agents === undefined ? ids : ids.filter((id) => asked.includes(id));
+}
+
+// A deal narrowed to the chosen Agents; deals with no Agent yet are always shown to Callers (they are theirs to assign).
+async function dealMatchesAgents(deal, agentIds) {
+  const owner = await agentOfDeal(deal);
+  return owner == null || agentIds.includes(owner);
+}
+
+// Names the Agent on meeting rows so Callers can tell whose is whose.
+async function withAgentNames(items) {
+  const agents = await roster();
+  const name = (id) => agents.find((a) => a.id === id)?.name || null;
+  const out = [];
+  for (const m of items) {
+    if (m.source === 'zoom' || m.source === 'history' || m.source === 'google') {
+      out.push({ ...m, agent_name: m.agent_name ?? name(m.agent_id) });
+    } else {
+      const id = await agentOfDeal(m);
+      out.push({ ...m, agent_id: id, agent_name: name(id) });
+    }
+  }
+  return out;
+}
+
+// An Agent can only open their own deals and contacts, whatever id they type.
+app.use('/api/deals/:id', async (req, res, next) => {
+  if (!isAgent(req) || !/^\d+$/.test(req.params.id)) return next();
+  const deal = await getDeal(req.params.id);
+  if (!deal || (await agentOfDeal(deal)) !== req.user.id) return res.status(404).json({ error: 'not found' });
+  next();
+});
+app.use('/api/contacts/:id', async (req, res, next) => {
+  if (!isAgent(req) || !/^\d+$/.test(req.params.id)) return next();
+  if (!(await contactIdsOf(req, { includeDeleted: true })).has(Number(req.params.id))) return res.status(404).json({ error: 'not found' });
+  next();
+});
+
+// The team's size: how many Callers and Agents it has room for. Callers can change it; it can't drop below
+// who is already in.
+app.put('/api/team/seats', callerOnly, async (req, res) => {
+  const team = await setTeamSeats(await getTeam(req.user.team_id), req.body || {});
+  res.json(await sessionInfo(await getAccount(req.user.id), team));
+});
 
 app.get('/api/leads', async (req, res) => res.json(await fetchLeads()));
 
@@ -493,17 +682,22 @@ app.post('/api/leads/import', callerOnly, async (req, res) => {
       source: 'google_sheet',
       created_by,
     });
-    const deal = await createDeal({ contact_id: contact.id, title: `${contact.name} — new lead`, created_by });
+    const deal = await createDeal({ contact_id: contact.id, title: `${contact.name} — new lead`, created_by, agent_id: await soleAgentId() });
     created.push({ contact, deal });
   }
   res.json({ imported: created.length, created });
 });
 
 // ---------- Contacts ----------
-app.get('/api/contacts', async (req, res) => res.json(await listContacts({ q: req.query.q })));
+app.get('/api/contacts', async (req, res) => {
+  const contacts = await listContacts({ q: req.query.q });
+  if (!isAgent(req)) return res.json(contacts);
+  const mine = await contactIdsOf(req);
+  res.json(contacts.filter((c) => mine.has(c.id)));
+});
 
 // Lets the form warn about a duplicate number while it's still being typed.
-app.get('/api/contacts/duplicate', async (req, res) => {
+app.get('/api/contacts/duplicate', callerOnly, async (req, res) => {
   const existing = await findContactByPhone(req.query.phone, { excludeId: req.query.exclude });
   res.json({ existing: existing ? { id: existing.id, name: existing.name, phone: existing.phone } : null });
 });
@@ -525,19 +719,26 @@ const timeChecked = (req, res, next) => {
 };
 
 app.post('/api/contacts', callerOnly, timeChecked, async (req, res) => {
-  const { name, phone, email, company, notes, created_by, scheduled_at, zoom_link } = req.body;
+  const { name, phone, email, company, notes, created_by, scheduled_at, zoom_link, agent_id } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   const duplicate = await findContactByPhone(phone);
   if (duplicate) return duplicatePhoneResponse(res, duplicate);
+  // Validate the Agent before saving anything, so a wrong choice never leaves a half-made contact behind.
+  let chosenAgent = null;
+  try {
+    chosenAgent = scheduled_at ? await resolveBookingAgent(agent_id, null) : agent_id != null && agent_id !== '' ? await resolveBookingAgent(agent_id, null) : await soleAgentId();
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
   const contact = await createContact({ name, phone, email, company, notes, created_by });
-  let deal = await createDeal({ contact_id: contact.id, title: `${contact.name}`, created_by });
+  let deal = await createDeal({ contact_id: contact.id, title: `${contact.name}`, created_by, agent_id: chosenAgent });
   // Optional: book the meeting in the same step. If Zoom refuses, the contact
   // is still saved (nothing to roll back) and the error is handed back so the
   // caller can retry the booking from the deal.
   let meeting_error = null;
   if (scheduled_at) {
     try {
-      deal = await bookMeeting(deal, contact, { scheduled_at, zoom_link, changed_by: created_by });
+      deal = await bookMeeting(deal, contact, { scheduled_at, zoom_link, changed_by: created_by, agent_id: chosenAgent });
     } catch (err) {
       meeting_error = err.message;
     }
@@ -547,7 +748,12 @@ app.post('/api/contacts', callerOnly, timeChecked, async (req, res) => {
 
 // Must be registered before '/api/contacts/:id' below, or Express would match
 // "deleted" as an :id and this route would never be reached.
-app.get('/api/contacts/deleted', async (req, res) => res.json(await listDeletedContacts()));
+app.get('/api/contacts/deleted', async (req, res) => {
+  const deleted = await listDeletedContacts();
+  if (!isAgent(req)) return res.json(deleted);
+  const mine = await contactIdsOf(req, { includeDeleted: true });
+  res.json(deleted.filter((c) => mine.has(c.id)));
+});
 
 app.get('/api/contacts/:id', async (req, res) => {
   const contact = await getContact(req.params.id);
@@ -627,7 +833,7 @@ app.delete('/api/contacts/:id/forever', async (req, res) => {
 
 // ---------- Deals / pipeline ----------
 app.get('/api/deals', async (req, res) => {
-  const deals = await listDeals({ stage: req.query.stage, contact_id: req.query.contact_id });
+  const deals = await dealsVisibleTo(req, await listDeals({ stage: req.query.stage, contact_id: req.query.contact_id }));
   const withExtras = await Promise.all(
     deals.map(async (d) => ({
       ...d,
@@ -637,7 +843,10 @@ app.get('/api/deals', async (req, res) => {
   res.json(withExtras);
 });
 app.get('/api/deals/next', async (req, res) => {
-  const deal = await getNextMeeting();
+  const upcoming = (await dealsVisibleTo(req, await listDeals({ stage: 'meeting_booked' })))
+    .filter((d) => d.scheduled_at && new Date(d.scheduled_at).getTime() > Date.now())
+    .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+  const deal = upcoming[0] || null;
   res.json(deal ? { ...deal, contact: await getContact(deal.contact_id) } : null);
 });
 app.get('/api/stages', (req, res) => res.json(STAGES.map((s) => ({ key: s, label: STAGE_LABELS[s] }))));
@@ -651,7 +860,11 @@ app.get('/api/meetings', async (req, res) => {
     const t = new Date(m.scheduled_at).getTime();
     return when === 'upcoming' ? t > now : when === 'past' ? t <= now : true;
   };
-  const allDeals = (await listDeals()).filter((d) => d.scheduled_at);
+  // An Agent: only their own. A Caller: every Agent's, or just the ones picked with ?agents=.
+  const agentIds = await selectedAgentIds(req);
+  const everyDeal = [];
+  for (const d of await dealsVisibleTo(req, await listDeals())) if (await dealMatchesAgents(d, agentIds)) everyDeal.push(d);
+  const allDeals = everyDeal.filter((d) => d.scheduled_at);
   const withContacts = await Promise.all(
     allDeals
       .filter(inRange)
@@ -661,19 +874,20 @@ app.get('/api/meetings', async (req, res) => {
       .map(async (d) => ({ ...d, contact: await getContact(d.contact_id) }))
   );
   const linkedIds = new Set(allDeals.filter((d) => d.zoom_meeting_id).map((d) => d.zoom_meeting_id));
-  const zoomOnly = (await getZoomOnlyMeetings(linkedIds)).filter(inRange);
-  const history = (await pastMeetingsOf(await listDeals())).filter(inRange);
+  const zoomOnly = (await zoomOnlyForAgents(linkedIds, agentIds)).filter(inRange);
+  const history = (await pastMeetingsOf(everyDeal)).filter(inRange);
   const combined = withContacts.concat(zoomOnly, history);
   combined.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
-  res.json(await withAttendance(combined));
+  res.json(await withAgentNames(await withAttendance(combined)));
 });
 
 app.get('/api/deals/:id', async (req, res) => {
   const deal = await getDeal(req.params.id);
   if (!deal) return res.status(404).json({ error: 'not found' });
   const [withAtt] = await withAttendance([deal]);
+  const [named] = await withAgentNames([withAtt]);
   res.json({
-    ...withAtt,
+    ...named,
     contact: await getContact(deal.contact_id),
     activities: await listActivities({ deal_id: deal.id }),
   });
@@ -691,10 +905,11 @@ app.post('/api/attendance', agentOnly, async (req, res) => {
     if (!/^\d+$/.test(String(zoom_id))) return res.status(400).json({ error: 'zoom_id required' });
     ref = attendanceRef.zoom(zoom_id);
     const logged = (await readZoomLog()).find((e) => String(e.zoom_id) === String(zoom_id));
+    if (logged && (await ownerOfEntry(logged)) !== req.user.id) return res.status(404).json({ error: 'not found' });
     at = logged?.start_time || req.body.scheduled_at;
   } else if (kind === 'deal' || kind === 'history') {
     let deal = await getDeal(deal_id);
-    if (!deal) return res.status(404).json({ error: 'not found' });
+    if (!deal || (await agentOfDeal(deal)) !== req.user.id) return res.status(404).json({ error: 'not found' });
     if (kind === 'deal') {
       if (!deal.scheduled_at) return res.status(400).json({ error: 'This deal has no meeting.' });
       if (!deal.stat_ref) {
@@ -731,12 +946,12 @@ app.post('/api/deals/:id/stage', async (req, res) => {
 });
 
 app.post('/api/deals/:id/schedule', callerOnly, timeChecked, async (req, res) => {
-  const { zoom_link, scheduled_at, changed_by } = req.body;
+  const { zoom_link, scheduled_at, changed_by, agent_id } = req.body;
   if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at required' });
   const existing = await getDeal(req.params.id);
   if (!existing) return res.status(404).json({ error: 'not found' });
   try {
-    res.json(await bookMeeting(existing, await getContact(existing.contact_id), { scheduled_at, zoom_link, changed_by }));
+    res.json(await bookMeeting(existing, await getContact(existing.contact_id), { scheduled_at, zoom_link, changed_by, agent_id }));
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -763,9 +978,10 @@ app.post('/api/deals/:id/reschedule', callerOnly, timeChecked, async (req, res) 
 
   // If this meeting's Zoom event is ours to manage, just move its time —
   // the join link stays exactly the same, nothing to re-share.
-  if (!zoom_link && (await zoom.isConnected()) && existing.zoom_meeting_id) {
+  const owner = await agentOfDeal(existing);
+  if (!zoom_link && owner != null && existing.zoom_meeting_id && (await inAgent(owner, () => zoom.isConnected()))) {
     try {
-      await zoom.updateMeetingTime(existing.zoom_meeting_id, { startTime: scheduled_at });
+      await inAgent(owner, () => zoom.updateMeetingTime(existing.zoom_meeting_id, { startTime: scheduled_at }));
     } catch (err) {
       return res.status(502).json({ error: `Zoom meeting update failed: ${err.message}` });
     }
@@ -839,7 +1055,7 @@ app.post('/api/zoom-meetings/:meetingId/request-reschedule', agentOnly, async (r
   const { remark, requested_by, topic, scheduled_at } = req.body;
   if (!remark) return res.status(400).json({ error: 'remark required' });
   const when = scheduled_at ? formatWhen(scheduled_at) : 'the scheduled time';
-  const meta = { zoom_meeting_id: req.params.meetingId, topic: topic || null, scheduled_at: scheduled_at || null, remark };
+  const meta = { zoom_meeting_id: req.params.meetingId, topic: topic || null, scheduled_at: scheduled_at || null, remark, agent_id: req.user.id };
   const logged = (await readZoomLog()).find((e) => String(e.zoom_id) === String(req.params.meetingId));
   await recordRescheduleRequest(`zoom-${req.params.meetingId}`, scheduled_at || logged?.start_time);
   const open = await findOpenNotification({ type: 'reschedule_requested', zoom_meeting_id: req.params.meetingId });
@@ -888,7 +1104,7 @@ app.post('/api/zoom-meetings/:meetingId/outcome', agentOnly, async (req, res) =>
   const config = FOLLOWUP_OUTCOMES[outcome];
   if (!config) return res.status(400).json({ error: 'invalid outcome' });
   const when = scheduled_at ? formatWhen(scheduled_at) : 'the scheduled time';
-  const meta = { zoom_meeting_id: req.params.meetingId, outcome, note: note || '', topic: topic || null, scheduled_at: scheduled_at || null };
+  const meta = { zoom_meeting_id: req.params.meetingId, outcome, note: note || '', topic: topic || null, scheduled_at: scheduled_at || null, agent_id: req.user.id };
   const noteText = note ? ` Notes: ${note}` : '';
   // Logging again while the caller hasn't acted on it replaces the earlier entry.
   const open = await findOpenNotification({ type: 'meeting_outcome', zoom_meeting_id: req.params.meetingId });
@@ -915,9 +1131,15 @@ app.post('/api/zoom-meetings/:meetingId/outcome', agentOnly, async (req, res) =>
 app.post('/api/zoom-meetings/:meetingId/reschedule', callerOnly, timeChecked, async (req, res) => {
   const { scheduled_at, changed_by, topic } = req.body || {};
   if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at required' });
-  if (!(await zoom.isConnected())) return res.status(400).json({ error: 'Zoom not connected' });
+  let owner;
   try {
-    await zoom.updateMeetingTime(req.params.meetingId, { startTime: scheduled_at });
+    owner = await zoomMeetingOwner(req.params.meetingId, req.body?.agent_id);
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+  if (!(await inAgent(owner, () => zoom.isConnected()))) return res.status(400).json({ error: 'Zoom not connected' });
+  try {
+    await inAgent(owner, () => zoom.updateMeetingTime(req.params.meetingId, { startTime: scheduled_at }));
   } catch (err) {
     return res.status(502).json({ error: `Zoom reschedule failed: ${err.message}` });
   }
@@ -927,6 +1149,7 @@ app.post('/api/zoom-meetings/:meetingId/reschedule', callerOnly, timeChecked, as
     contact_id: null,
     message: `${changed_by || 'Someone'} moved "${topic || 'a Zoom meeting'}" to ${formatWhen(scheduled_at)}.`,
     from_name: changed_by,
+    for_agent: owner,
   });
   await resolveZoomRescheduleRequests(req.params.meetingId);
   await recordOnce('fixed', `zoom-${req.params.meetingId}`);
@@ -939,9 +1162,15 @@ app.post('/api/zoom-meetings/:meetingId/reschedule', callerOnly, timeChecked, as
 });
 
 app.delete('/api/zoom-meetings/:meetingId', callerOnly, async (req, res) => {
-  if (!(await zoom.isConnected())) return res.status(400).json({ error: 'Zoom not connected' });
+  let owner;
   try {
-    await zoom.deleteMeeting(req.params.meetingId);
+    owner = await zoomMeetingOwner(req.params.meetingId, req.body?.agent_id);
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+  if (!(await inAgent(owner, () => zoom.isConnected()))) return res.status(400).json({ error: 'Zoom not connected' });
+  try {
+    await inAgent(owner, () => zoom.deleteMeeting(req.params.meetingId));
   } catch (err) {
     return res.status(502).json({ error: `Zoom delete failed: ${err.message}` });
   }
@@ -954,6 +1183,7 @@ app.delete('/api/zoom-meetings/:meetingId', callerOnly, async (req, res) => {
       scheduled_at ? ` (${formatWhen(scheduled_at)})` : ''
     } from Zoom.`,
     from_name: deleted_by,
+    for_agent: owner,
   });
   await resolveZoomRescheduleRequests(req.params.meetingId);
   await forgetMeeting(`zoom-${req.params.meetingId}`);
@@ -1046,9 +1276,13 @@ app.get('/api/deals/:id/calendar-link', async (req, res) => {
 // requests on Zoom-only meetings exist only as notifications, so those are
 // read from the still-open ones.
 app.get('/api/summary/reschedule-requests', async (req, res) => {
-  const deals = (await listDeals()).filter((d) => d.reschedule_requested);
+  const agents = await roster();
+  const agentName = (id) => agents.find((a) => a.id === id)?.name || null;
+  const deals = (await dealsVisibleTo(req, await listDeals())).filter((d) => d.reschedule_requested);
   const items = await Promise.all(
     deals.map(async (d) => ({
+      agent_id: await agentOfDeal(d),
+      agent_name: agentName(await agentOfDeal(d)),
       kind: 'deal',
       deal_id: d.id,
       name: (await getContact(d.contact_id))?.name || 'unknown',
@@ -1058,11 +1292,13 @@ app.get('/api/summary/reschedule-requests', async (req, res) => {
       requested_at: d.reschedule_requested.requested_at,
     }))
   );
-  const zoomRequests = (await listNotifications({ role: 'caller', status: 'new' })).filter(
-    (n) => n.type === 'reschedule_requested' && n.meta?.zoom_meeting_id != null
-  );
+  const zoomRequests = isAgent(req)
+    ? []
+    : (await listNotifications({ role: 'caller', status: 'new' })).filter((n) => n.type === 'reschedule_requested' && n.meta?.zoom_meeting_id != null);
   zoomRequests.forEach((n) =>
     items.push({
+      agent_id: n.meta.agent_id ?? null,
+      agent_name: agentName(n.meta.agent_id),
       kind: 'zoom',
       notification_id: n.id,
       zoom_meeting_id: n.meta.zoom_meeting_id,
@@ -1079,7 +1315,14 @@ app.get('/api/summary/reschedule-requests', async (req, res) => {
 
 app.get('/api/summary/activities', async (req, res) => {
   const limit = Number(req.query.limit) || 12;
-  const activities = (await listActivities()).slice(0, limit);
+  let every = await listActivities();
+  if (isAgent(req)) {
+    const mine = await dealsVisibleTo(req, await listDeals({ includeDeleted: true }));
+    const dealIds = new Set(mine.map((d) => d.id));
+    const contactIds = new Set(mine.map((d) => d.contact_id));
+    every = every.filter((a) => (a.deal_id != null && dealIds.has(a.deal_id)) || (a.contact_id != null && contactIds.has(a.contact_id)));
+  }
+  const activities = every.slice(0, limit);
   const withContacts = await Promise.all(
     activities.map(async (a) => ({ ...a, contact: a.contact_id ? await getContact(a.contact_id) : null }))
   );
@@ -1118,12 +1361,15 @@ app.get('/api/summary/month', async (req, res) => {
 
   // Every deal with a meeting on it, whatever stage it's in now — logging an
   // outcome moves the deal on, but the meeting still happened and stays put.
-  const everyDeal = await listDeals();
+  // An Agent sees only their own; a Caller sees every Agent's, or just the ones ticked (?agents=1,2).
+  const agentIds = await selectedAgentIds(req);
+  const everyDeal = [];
+  for (const d of await dealsVisibleTo(req, await listDeals())) if (await dealMatchesAgents(d, agentIds)) everyDeal.push(d);
   const allDeals = everyDeal.filter((d) => d.scheduled_at);
   const withContacts = await Promise.all(allDeals.filter(inMonth).map(async (d) => ({ ...d, contact: await getContact(d.contact_id) })));
 
   const linkedIds = new Set(allDeals.filter((d) => d.zoom_meeting_id).map((d) => d.zoom_meeting_id));
-  const zoomAll = await getZoomOnlyMeetings(linkedIds);
+  const zoomAll = await zoomOnlyForAgents(linkedIds, agentIds);
   const zoomOnly = zoomAll.filter(inMonth);
   const history = (await pastMeetingsOf(everyDeal)).filter(inMonth);
 
@@ -1134,39 +1380,55 @@ app.get('/api/summary/month', async (req, res) => {
       everyDeal.map((d) => (d.zoom_link || '').match(ZOOM_ID_IN_LINK)?.[1]).filter(Boolean)
     )
   );
-  const google =
-    req.user.role === 'caller'
-      ? await googleCalendarItems({
+  // Callers also get each ticked Agent's Google Calendar (the Agent's own view stays Zoom-only).
+  const google = [];
+  if (req.user.role === 'caller') {
+    const names = await roster();
+    const knownEventIds = new Set(everyDeal.map((d) => d.google_event_id).filter(Boolean));
+    for (const id of agentIds) {
+      const items = await inAgent(id, () =>
+        googleCalendarItems({
           from: new Date(monthStart.getTime() - 86400000),
           to: new Date(monthEnd.getTime() + 86400000),
           knownZoomIds,
-          knownEventIds: new Set(everyDeal.map((d) => d.google_event_id).filter(Boolean)),
+          knownEventIds,
         })
-      : [];
+      );
+      const name = names.find((a) => a.id === id)?.name || null;
+      google.push(...items.map((e) => ({ ...e, agent_id: id, agent_name: name, id: `${e.id}@${id}` })));
+    }
+  }
 
   const combined = withContacts.concat(zoomOnly, history, google);
   combined.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
-  res.json(combined);
+  res.json(await withAgentNames(combined));
 });
 
 // The Agent's Analytics page, one month at a time: interviews fixed, attended and
 // rescheduled, and how the ones he logged turned out (see lib/stats.js). `tz` is
 // the browser's timezone offset so a month starts and ends where the viewer thinks it does.
 app.get('/api/analytics', agentOnly, async (req, res) => {
-  const deals = await listDeals();
+  const deals = await dealsVisibleTo(req, await listDeals());
   await backfillDealRefs(deals);
-  // Pick up any interviews booked straight in Zoom that we haven't counted yet.
-  await getZoomOnlyMeetings(new Set(deals.filter((d) => d.zoom_meeting_id).map((d) => d.zoom_meeting_id)));
+  // Pick up any interviews booked straight in this Agent's Zoom that we haven't counted yet.
+  await getZoomOnlyMeetings(new Set((await listDeals()).filter((d) => d.zoom_meeting_id).map((d) => d.zoom_meeting_id)), req.user.id);
   // Always Singapore's months. (A browser used to send its own offset here, which
   // let a device on another timezone see different month totals.)
-  res.json(await monthlyAnalytics({ month: req.query.month, tz: TEAM_TZ_PARAM }));
+  res.json(await monthlyAnalytics({ month: req.query.month, tz: TEAM_TZ_PARAM, agentId: req.user.id }));
 });
 
 // ---------- In-app notifications (replaces the old WhatsApp pings) ----------
 app.get('/api/notifications', async (req, res) =>
-  res.json(await listNotifications({ unreadOnly: req.query.unread === 'true', role: req.user.role, status: req.query.status }))
+  res.json(await listNotifications({ unreadOnly: req.query.unread === 'true', role: req.user.role, userId: req.user.id, status: req.query.status }))
 );
-app.get('/api/notifications/unread-count', async (req, res) => res.json({ count: await unreadCount({ role: req.user.role }) }));
+app.get('/api/notifications/unread-count', async (req, res) => res.json({ count: await unreadCount({ role: req.user.role, userId: req.user.id }) }));
+// Notifications addressed to a particular Agent can't be touched by the team's other Agents.
+app.use('/api/notifications/:id', async (req, res, next) => {
+  if (!/^\d+$/.test(req.params.id)) return next();
+  const seen = await listNotifications({ role: req.user.role, userId: req.user.id });
+  if (!seen.some((n) => n.id === Number(req.params.id))) return res.status(404).json({ error: 'not found' });
+  next();
+});
 app.post('/api/notifications/:id/read', async (req, res) => {
   const n = await markRead(req.params.id);
   if (!n) return res.status(404).json({ error: 'not found' });
@@ -1183,7 +1445,7 @@ app.delete('/api/notifications/:id', async (req, res) => {
   res.json({ ok: true });
 });
 app.post('/api/notifications/read-all', async (req, res) => {
-  await markAllRead({ role: req.user.role });
+  await markAllRead({ role: req.user.role, userId: req.user.id });
   res.json({ ok: true });
 });
 
@@ -1233,14 +1495,28 @@ app.get('/auth/zoom/callback', agentOnly, async (req, res) => {
 });
 
 app.get('/api/zoom/status', async (req, res) => {
-  res.json({
-    configured: await zoom.isConfigured(),
-    connected: await zoom.isConnected(),
-    email: await zoom.connectedEmail(),
-    apps: await zoom.appChoices(),
-    custom: await zoom.customAppInfo(), // this team's own Zoom app, if any (never its Secret)
-    redirect_uri: zoom.redirectUri(),
-  });
+  if (isAgent(req)) {
+    return res.json({
+      configured: await zoom.isConfigured(),
+      connected: await zoom.isConnected(),
+      email: await zoom.connectedEmail(),
+      apps: await zoom.appChoices(),
+      custom: await zoom.customAppInfo(), // this Agent's own Zoom app, if any (never its Secret)
+      redirect_uri: zoom.redirectUri(),
+    });
+  }
+  // A Caller sees whether each Agent has connected Zoom (never anything of the connection itself), so the
+  // booking form knows whether a meeting can be created on the chosen Agent's account.
+  const agents = [];
+  for (const a of await roster()) {
+    agents.push({
+      id: a.id,
+      name: a.name,
+      connected: await inAgent(a.id, () => zoom.isConnected()),
+      email: await inAgent(a.id, () => zoom.connectedEmail()),
+    });
+  }
+  res.json({ configured: agents.some((a) => a.connected), connected: agents.some((a) => a.connected), email: null, agents });
 });
 
 // A team keeping its own Zoom app's credentials. Agent only; the Secret is stored encrypted
@@ -1287,7 +1563,12 @@ app.get('/auth/google/callback', agentOnly, async (req, res) => {
   }
 });
 
-app.get('/api/google/status', async (req, res) => res.json(await gcal.status()));
+app.get('/api/google/status', async (req, res) => {
+  if (isAgent(req)) return res.json(await gcal.status());
+  const agents = [];
+  for (const a of await roster()) agents.push({ id: a.id, name: a.name, ...(await inAgent(a.id, () => gcal.status())) });
+  res.json({ configured: gcal.isConfigured(), connected: agents.some((x) => x.connected), needs_reconnect: agents.some((x) => x.needs_reconnect), email: null, agents });
+});
 
 app.post('/api/google/disconnect', agentOnly, async (req, res) => {
   await gcal.disconnect();

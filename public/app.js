@@ -111,6 +111,89 @@ function currentUser() {
   return ME ? ME.user.name : 'someone';
 }
 
+// ---------- Agents ----------
+// A team can have several Agents. Each has their own colour here, so a Caller can tell whose meeting is
+// whose on the calendar and in the lists.
+const AGENT_COLORS = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626', '#0891b2', '#be185d', '#4d7c0f', '#7c3aed', '#b45309'];
+const agentRoster = () => (ME?.members || []).filter((m) => m.role === 'agent');
+const multiAgent = () => agentRoster().length > 1;
+function agentColor(id) {
+  const i = agentRoster().findIndex((a) => a.id === id);
+  return AGENT_COLORS[(i < 0 ? 0 : i) % AGENT_COLORS.length];
+}
+const agentNameOf = (id) => agentRoster().find((a) => a.id === id)?.name || null;
+
+// Whether a meeting with this Agent can get its Zoom link made automatically: only if that Agent has
+// connected their Zoom. (An Agent asks about themself; a Caller asks about the one chosen — or the only
+// one the team has.)
+function zoomConnectedFor(agentId) {
+  if (currentRole === 'agent') return Boolean(ZOOM_STATUS.connected);
+  const list = ZOOM_STATUS.agents || [];
+  const a = agentId ? list.find((x) => String(x.id) === String(agentId)) : list.length === 1 ? list[0] : null;
+  return Boolean(a?.connected);
+}
+
+// Which Agents a Caller has ticked to look at (Summary calendar and Meetings share it), remembered per team in
+// this browser. Everything ticked by default.
+let agentFilter = null; // { ticked: Set, known: Set } — null until first needed
+function filterKey() {
+  return `agentFilter:${ME?.team?.id}:${ME?.user?.id}`;
+}
+function selectedAgents() {
+  const ids = agentRoster().map((a) => a.id);
+  if (agentFilter === null) {
+    let saved = null;
+    try {
+      saved = JSON.parse(localStorage.getItem(filterKey()) || 'null');
+    } catch {
+      // private window or old value: start with everyone ticked
+    }
+    agentFilter = { ticked: new Set(saved?.ticked ?? ids), known: new Set(saved?.known ?? ids) };
+  }
+  // An Agent who joined after the choice was saved starts ticked.
+  return ids.filter((id) => agentFilter.ticked.has(id) || !agentFilter.known.has(id));
+}
+function agentsQuery() {
+  if (currentRole !== 'caller' || !multiAgent()) return '';
+  const ticked = selectedAgents();
+  return ticked.length === agentRoster().length ? '' : `&agents=${ticked.join(',')}`;
+}
+function renderAgentFilter(el) {
+  const show = currentRole === 'caller' && multiAgent();
+  el.hidden = !show;
+  if (!show) return;
+  const ticked = new Set(selectedAgents());
+  el.innerHTML =
+    '<span class="af-label">Show</span>' +
+    agentRoster()
+      .map(
+        (a) =>
+          `<button type="button" class="af-chip${ticked.has(a.id) ? ' on' : ''}" data-id="${a.id}" style="--c:${agentColor(a.id)}" aria-pressed="${ticked.has(a.id)}"><i></i>${escapeHtml(a.name)}</button>`
+      )
+      .join('') +
+    `<button type="button" class="af-all">${ticked.size === agentRoster().length ? 'None' : 'All'}</button>`;
+  el.querySelectorAll('.af-chip').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const id = Number(btn.dataset.id);
+      const next = new Set(selectedAgents());
+      next.has(id) ? next.delete(id) : next.add(id);
+      setAgentFilter(next);
+    })
+  );
+  el.querySelector('.af-all').addEventListener('click', () =>
+    setAgentFilter(ticked.size === agentRoster().length ? new Set() : new Set(agentRoster().map((a) => a.id)))
+  );
+}
+function setAgentFilter(set) {
+  agentFilter = { ticked: set, known: new Set(agentRoster().map((a) => a.id)) };
+  try {
+    localStorage.setItem(filterKey(), JSON.stringify({ ticked: [...agentFilter.ticked], known: [...agentFilter.known] }));
+  } catch {
+    // private window: still works for this visit
+  }
+  refresh();
+}
+
 // ---------- tabs (sidebar icons + page-head tabs both drive the same state) ----------
 function activateTab(tab) {
   $$('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
@@ -180,13 +263,26 @@ let GOOGLE_STATUS = { configured: false, connected: false, email: null, needs_re
 
 async function loadGoogleStatus() {
   GOOGLE_STATUS = await api('/api/google/status');
+  // A Caller of a one-Agent team sees that Agent's connection as before.
+  if (currentRole === 'caller' && GOOGLE_STATUS.agents?.length === 1) GOOGLE_STATUS = { ...GOOGLE_STATUS, ...GOOGLE_STATUS.agents[0] };
   renderGoogleStatus();
+}
+
+// A Caller with several Agents: one pill saying how many have connected Google Calendar, listing each on hover.
+function callerAgentsPill(list, what, connectedOf) {
+  const ok = list.filter(connectedOf).length;
+  const title = list.map((a) => `${a.name}: ${connectedOf(a) ? 'connected' : 'not connected'}`).join('\n');
+  return `<span class="zoom-pill ${ok === list.length ? 'zoom-on' : 'zoom-off'}" title="${escapeHtml(title)}">${what} · ${ok} of ${list.length} Agents</span>`;
 }
 
 function renderGoogleStatus() {
   const el = $('#gcal-status');
   const isAgent = currentRole === 'agent';
   const g = GOOGLE_STATUS;
+  if (!isAgent && g.agents?.length > 1) {
+    el.innerHTML = g.configured ? callerAgentsPill(g.agents, 'Google', (a) => a.connected && !a.needs_reconnect) : '';
+    return;
+  }
   if (!g.configured) {
     el.innerHTML = ''; // nothing to offer until it's set up
   } else if (g.connected && g.needs_reconnect) {
@@ -263,16 +359,46 @@ function openOwnZoomAppModal() {
 
 async function loadZoomStatus() {
   ZOOM_STATUS = await api('/api/zoom/status');
+  // A Caller of a one-Agent team sees that Agent's connection as before.
+  if (currentRole === 'caller' && ZOOM_STATUS.agents?.length === 1) ZOOM_STATUS = { ...ZOOM_STATUS, ...ZOOM_STATUS.agents[0], configured: true };
   renderZoomStatus();
 }
 
+// The Agent a new contact's meeting is with, as picked in the form (or the team's only Agent).
+function contactFormAgent() {
+  const sel = $('#contact-form [name=agent_id]');
+  return sel && !$('#cf-agent-row').hidden ? sel.value : agentRoster().length === 1 ? String(agentRoster()[0].id) : '';
+}
+
+// Fills the "Agent" dropdown on the new-contact form (Callers of a team with several Agents only), keeping the choice.
+function renderContactAgentSelect() {
+  const row = $('#cf-agent-row');
+  const sel = $('#contact-form [name=agent_id]');
+  const show = currentRole === 'caller' && multiAgent();
+  row.hidden = !show;
+  if (!show) return;
+  const keep = sel.value;
+  sel.innerHTML =
+    '<option value="">Choose an Agent…</option>' +
+    agentRoster()
+      .map((a) => `<option value="${a.id}">${escapeHtml(a.name)}${zoomConnectedFor(a.id) ? '' : ' (Zoom not connected)'}</option>`)
+      .join('');
+  sel.value = keep;
+}
+
 function renderZoomStatus() {
-  const wantsManualLink = !ZOOM_STATUS.connected;
+  renderContactAgentSelect();
+  const formConnected = zoomConnectedFor(currentRole === 'agent' ? null : contactFormAgent() || null);
+  const wantsManualLink = !formConnected;
   const scheduling = !!$('#contact-form [name=scheduled_at]').value;
   $('#cf-zoom-row').hidden = !(wantsManualLink && scheduling);
-  $('#cf-zoom-hint').hidden = !(ZOOM_STATUS.connected && scheduling);
+  $('#cf-zoom-hint').hidden = !(formConnected && scheduling);
   const el = $('#zoom-status');
   const canManage = currentRole === 'agent'; // it's the agent's own personal Zoom account
+  if (!canManage && ZOOM_STATUS.agents?.length > 1) {
+    el.innerHTML = callerAgentsPill(ZOOM_STATUS.agents, 'Zoom', (a) => a.connected);
+    return;
+  }
   if (!ZOOM_STATUS.configured) {
     el.innerHTML = '<span class="zoom-pill zoom-off" title="Set ZOOM_CLIENT_ID / ZOOM_CLIENT_SECRET in .env to enable">Zoom not connected</span>';
     if (canManage) {
@@ -458,7 +584,7 @@ async function renderRequestsCard() {
   await withRetry(el, async () => {
     const items = await api('/api/summary/reschedule-requests');
     if (!items.length) {
-      el.innerHTML = '<div class="empty">No reschedule requests from Arron.</div>';
+      el.innerHTML = '<div class="empty">No reschedule requests from your Agents.</div>';
       return;
     }
     el.innerHTML = items
@@ -471,7 +597,7 @@ async function renderRequestsCard() {
         </div>
         <div class="request-remark">${r.remark ? `“${escapeHtml(r.remark)}”` : '<em>No reason given</em>'}</div>
         <div class="request-foot">
-          <span class="request-by">${escapeHtml(r.requested_by || 'Arron')} · ${fmtWhen(r.requested_at)}</span>
+          <span class="request-by">${escapeHtml(r.requested_by || 'Agent')} · ${fmtWhen(r.requested_at)}</span>
           <span class="request-actions">
             ${
               r.kind === 'deal'
@@ -576,7 +702,8 @@ async function renderCalendarCard() {
   });
   await withRetry(grid, async () => {
     const monthParam = `${calendarMonth.getFullYear()}-${String(calendarMonth.getMonth() + 1).padStart(2, '0')}`;
-    const meetings = await api(`/api/summary/month?month=${monthParam}`);
+    renderAgentFilter($('#calendar-agent-filter'));
+    const meetings = await api(`/api/summary/month?month=${monthParam}${agentsQuery()}`);
     const byDay = {};
     meetings.forEach((m) => {
       // Which Singapore day it falls on. (An all-day event is stored as noon UTC,
@@ -614,7 +741,10 @@ async function renderCalendarCard() {
           const tip = m.outcome ? ` title="${escapeHtml(outcomeLabel(m.outcome))}"` : '';
           const cls = ['cal-event', past ? 'past' : '', isGoogle ? 'google' : ''].filter(Boolean).join(' ');
           const time = m.all_day ? '' : `${fmtTime(m.scheduled_at)} `;
-          return `<div class="${cls}" data-day="${day}" data-idx="${i}"${tip}>${time}${escapeHtml(name)}</div>`;
+          // With several Agents, each one's meetings carry their colour down the left edge.
+          const colour = currentRole === 'caller' && multiAgent() && m.agent_id ? ` style="border-left:3px solid ${agentColor(m.agent_id)}"` : '';
+          const who = m.agent_name && currentRole === 'caller' && multiAgent() ? `${m.agent_name} · ` : '';
+          return `<div class="${cls}" data-day="${day}" data-idx="${i}"${tip}${colour}>${time}${escapeHtml(name)}${who ? ` <span class="cal-who">(${escapeHtml(m.agent_name)})</span>` : ''}</div>`;
         })
         .join('');
       cells += `
@@ -794,7 +924,8 @@ async function saveAttendance(select, d) {
 
 async function renderMeetingsTab() {
   $('#tab-meetings').classList.toggle('agent-attendance', currentRole === 'agent'); // room for dropdown + Update side by side
-  const deals = await api(`/api/meetings?when=${meetingsWhen}`);
+  renderAgentFilter($('#meetings-agent-filter'));
+  const deals = await api(`/api/meetings?when=${meetingsWhen}${agentsQuery()}`);
   if (!meetingsSortAsc) deals.reverse();
   const hasZoomOnly = deals.some((d) => d.source === 'zoom');
   if (hasZoomOnly) await ensureFollowupOutcomes();
@@ -813,9 +944,14 @@ async function renderMeetingsTab() {
         (d.reschedule_requested
           ? `<span class="badge-warning" title="${escapeHtml(d.reschedule_requested.remark)}">Reschedule requested</span>`
           : '') + (d.outcome ? `<span class="badge-outcome">${escapeHtml(outcomeLabel(d.outcome))}</span>` : '');
+      // A Caller of a team with several Agents sees whose meeting each one is.
+      const agentChip =
+        currentRole === 'caller' && multiAgent() && d.agent_name
+          ? `<div class="mt-agent" style="--c:${agentColor(d.agent_id)}"><i></i>${escapeHtml(d.agent_name)}</div>`
+          : '';
       return `
       <div class="meetings-row${isPast ? ' is-past' : ''}" data-id="${d.id}" ${isHistory ? `data-deal-id="${d.deal_id}"` : ''} ${isZoomOnly ? 'data-zoom-only="1"' : ''}>
-        <div class="mt-name">${name}${flags ? `<div class="mt-flags">${flags}</div>` : ''}</div>
+        <div class="mt-name">${name}${agentChip}${flags ? `<div class="mt-flags">${flags}</div>` : ''}</div>
         <div class="mt-join">${
           isHistory
             ? ''
@@ -1003,7 +1139,7 @@ async function renderMeetingsTab() {
       const zoomId = btn.dataset.id.replace('zoom-', '');
       await api(`/api/zoom-meetings/${zoomId}`, {
         method: 'DELETE',
-        body: JSON.stringify({ deleted_by: currentUser(), topic: meeting?.title, scheduled_at: meeting?.scheduled_at }),
+        body: JSON.stringify({ deleted_by: currentUser(), topic: meeting?.title, scheduled_at: meeting?.scheduled_at, agent_id: meeting?.agent_id }),
       });
       renderMeetingsTab();
     }));
@@ -1049,6 +1185,7 @@ async function renderMeetingsTab() {
               scheduled_local: val,
               changed_by: currentUser(),
               topic: meeting?.title,
+              agent_id: meeting?.agent_id, // whose Zoom a Zoom-only meeting is on
             }),
           }
         );
@@ -1210,23 +1347,28 @@ async function openDealModal(id, opts = {}) {
         ? ''
         : ['won', 'lost'].includes(deal.stage)
         ? ''
-        : `<div class="section-head"><h2>${deal.stage === 'meeting_booked' ? 'Reschedule' : 'Schedule meeting'}</h2></div>
+        : `<div class="section-head"><h2>${deal.stage === 'meeting_booked' ? 'Reschedule' : 'Schedule meeting'}</h2>${
+            deal.stage === 'meeting_booked' && deal.agent_name && multiAgent() ? `<span class="hint">with ${escapeHtml(deal.agent_name)}</span>` : ''
+          }</div>
     <div class="mactions">
+      ${
+        multiAgent() && deal.stage !== 'meeting_booked'
+          ? `<select id="m-agent" aria-label="Which Agent the meeting is with"><option value="">Choose an Agent…</option>${agentRoster()
+              .map((a) => `<option value="${a.id}"${deal.agent_id === a.id ? ' selected' : ''}>${escapeHtml(a.name)}${zoomConnectedFor(a.id) ? '' : ' (Zoom not connected)'}</option>`)
+              .join('')}</select>`
+          : ''
+      }
       <input id="m-time" type="datetime-local" title="Singapore time" />
       <span class="hint tz-hint">Singapore time</span>
-      ${ZOOM_STATUS.connected ? '' : `<input id="m-zoom" placeholder="Zoom link" value="${deal.zoom_link || ''}" />`}
+      <input id="m-zoom" placeholder="Zoom link" value="${deal.zoom_link || ''}"${zoomConnectedFor(deal.agent_id ?? null) ? ' hidden' : ''} />
       <button id="m-schedule" class="primary">${deal.stage === 'meeting_booked' ? 'Reschedule' : 'Schedule'}</button>
       ${deal.stage === 'meeting_booked' ? '<button id="m-delete-meeting" class="danger">Delete meeting</button>' : ''}
     </div>
-    ${
-      ZOOM_STATUS.connected
-        ? `<div class="hint">${
-            deal.zoom_meeting_id
-              ? 'The Zoom meeting will be moved to the new time — same join link.'
-              : 'A Zoom meeting will be created automatically on your connected account.'
-          }</div>`
-        : ''
-    }
+    <div id="m-zoom-hint" class="hint"${zoomConnectedFor(deal.agent_id ?? null) ? '' : ' hidden'}>${
+      deal.zoom_meeting_id
+        ? 'The Zoom meeting will be moved to the new time — same join link.'
+        : "A Zoom meeting will be created automatically on the Agent's connected account."
+    }</div>
     ${
       calendarLinks
         ? `<div class="mnotes"><a href="${calendarLinks.googleCalendarUrl}" target="_blank" rel="noopener">Add to Google Calendar</a> · <a href="${calendarLinks.icsUrl}">Download .ics</a></div>`
@@ -1304,15 +1446,30 @@ async function openDealModal(id, opts = {}) {
     }));
   }
 
+  if ($('#m-agent')) {
+    // Whether a Zoom link has to be pasted depends on whose Zoom the meeting will be on.
+    $('#m-agent').addEventListener('change', (e) => {
+      const ok = zoomConnectedFor(e.target.value || null);
+      $('#m-zoom').hidden = ok;
+      $('#m-zoom-hint').hidden = !ok;
+    });
+  }
+
   if ($('#m-schedule')) {
     $('#m-schedule').addEventListener('click', guardClick($('#m-schedule'), async () => {
       const time = $('#m-time').value;
       if (!time) return alert('Pick a time.');
       const zoomInput = $('#m-zoom');
-      const zoomLink = zoomInput ? zoomInput.value.trim() : '';
-      if (!ZOOM_STATUS.connected && !zoomLink) return alert('Need a Zoom link (or connect Zoom in the top bar to auto-generate one).');
+      const agentId = $('#m-agent') ? $('#m-agent').value : deal.agent_id ?? '';
+      if (multiAgent() && !agentId) return alert('Choose which Agent this meeting is with.');
+      const zoomLink = zoomInput && !zoomInput.hidden ? zoomInput.value.trim() : '';
+      if (!zoomConnectedFor(agentId || null) && !zoomLink) {
+        const who = agentId ? agentNameOf(Number(agentId)) : null;
+        return alert(who ? `${who} has not connected Zoom, so a meeting can't be created on their account. Paste a Zoom link, or ask ${who} to connect Zoom.` : 'Need a Zoom link (or connect Zoom in the top bar to auto-generate one).');
+      }
       const endpoint = deal.stage === 'meeting_booked' ? 'reschedule' : 'schedule';
       const payload = { scheduled_at: sgInputToISO(time), scheduled_local: time, changed_by: currentUser() };
+      if (agentId) payload.agent_id = Number(agentId);
       if (zoomLink) payload.zoom_link = zoomLink;
       const booked = await api(`/api/deals/${id}/${endpoint}`, { method: 'POST', body: JSON.stringify(payload) });
       if (booked?.calendar_warning) alert(booked.calendar_warning);
@@ -1569,6 +1726,7 @@ $('#contact-form [name=scheduled_at]').addEventListener('input', (e) => {
   $('#cf-submit').textContent = e.target.value ? 'Add contact & schedule meeting' : 'Add contact';
   renderZoomStatus();
 });
+$('#contact-form [name=agent_id]').addEventListener('change', renderZoomStatus); // the Zoom link box depends on whose Zoom it is
 
 $('#cf-result-done').addEventListener('click', () => {
   $('#cf-result').hidden = true;
@@ -1582,7 +1740,12 @@ $('#contact-form').addEventListener('submit', async (e) => {
   const form = e.target;
   const when = form.scheduled_at.value;
   const zoomLink = form.zoom_link.value.trim();
-  if (when && !ZOOM_STATUS.connected && !zoomLink) return alert('Paste a Zoom link for this meeting (Zoom is not connected to create one automatically).');
+  const agentId = contactFormAgent();
+  if (when && multiAgent() && !agentId) return alert('Choose which Agent this meeting is with.');
+  if (when && !zoomConnectedFor(agentId || null) && !zoomLink) {
+    const who = agentId ? agentNameOf(Number(agentId)) : null;
+    return alert(who ? `${who} has not connected Zoom, so a meeting can't be created on their account. Paste a Zoom link, or ask ${who} to connect Zoom.` : 'Paste a Zoom link for this meeting (Zoom is not connected to create one automatically).');
+  }
   let res;
   try {
     res = await api('/api/contacts', {
@@ -1596,9 +1759,11 @@ $('#contact-form').addEventListener('submit', async (e) => {
         scheduled_at: when ? sgInputToISO(when) : undefined,
         scheduled_local: when || undefined,
         zoom_link: zoomLink || undefined,
+        agent_id: agentId ? Number(agentId) : undefined,
       }),
     });
   } catch (err) {
+    if (err.status === 400 && err.body?.error) return alert(err.body.error);
     if (err.status === 409) return showPhoneWarning(err.body.existing); // someone else already has this number
     throw err;
   }
@@ -1774,12 +1939,12 @@ const AUTH_MODES = {
     fields: ['email', 'password', 'login-forgot'],
   },
   create: {
-    blurb: 'Start a team for you and your teammate. A team is one Caller and one Agent — your data stays private to it.',
+    blurb: 'Start a team: choose how many Callers and Agents it will have, then send them the invite code. Your data stays private to your team.',
     submit: 'Create team',
-    fields: ['name', 'team_name', 'role', 'email', 'password'],
+    fields: ['name', 'team_name', 'role', 'seats', 'email', 'password'],
   },
   join: {
-    blurb: 'Your teammate already made the team? Enter the invite code they sent you.',
+    blurb: 'Your team already made? Enter the invite code they sent you.',
     submit: 'Join team',
     fields: ['name', 'invite_code', 'role', 'email', 'password'],
   },
@@ -1968,6 +2133,28 @@ $('#auth-form').addEventListener('submit', async (e) => {
 
 const ROLE_LABEL = { caller: 'Caller', agent: 'Agent' };
 
+// The two team-size sliders (Callers, Agents) show their number beside them.
+const SEAT_LIMITS = { caller: 5, agent: 10 };
+function bindSeatSliders(root, { callers = 'callers', agents = 'agents' } = {}) {
+  [[callers, 'seat-callers-out'], [agents, 'seat-agents-out']].forEach(([name, outId]) => {
+    const input = root.querySelector(`[name=${name}]`);
+    const out = root.querySelector(`#${outId}`);
+    if (!input || !out) return;
+    const sync = () => (out.textContent = input.value);
+    input.addEventListener('input', sync);
+    sync();
+  });
+}
+bindSeatSliders($('#auth-form'));
+
+// "2 Agents and 1 Caller" from open-seat counts.
+function seatsPhrase(open) {
+  const parts = [];
+  if (open.agent) parts.push(`${open.agent} Agent${open.agent > 1 ? 's' : ''}`);
+  if (open.caller) parts.push(`${open.caller} Caller${open.caller > 1 ? 's' : ''}`);
+  return parts.join(' and ');
+}
+
 function copyText(text, btn) {
   const done = () => {
     const original = btn.textContent;
@@ -1989,17 +2176,57 @@ function renderAccount() {
   // wording (and the top banner nudging you to send it) depends on whether a
   // seat happens to be open right now.
   $('#am-invite').hidden = false;
-  $('#am-invite-blurb').textContent = invite.role
-    ? `Invite your ${ROLE_LABEL[invite.role]}. They join with this code:`
+  const anyOpen = invite.open.agent + invite.open.caller > 0;
+  $('#am-invite-blurb').textContent = anyOpen
+    ? `Still room for ${seatsPhrase(invite.open)}. They join with this code:`
     : "Your team's invite code — keep it, in case you ever need to bring in a replacement:";
   $('#am-invite-code').textContent = invite.code;
-  const showBanner = Boolean(invite.role) && sessionStorage.getItem('inviteBannerDismissed') !== '1';
+  // Everyone in the team, so a Caller can see who the Agents are.
+  $('#am-members').innerHTML =
+    `<div class="am-sub">Team (${ME.members.length} of ${team.seats.caller + team.seats.agent}):</div>` +
+    ME.members
+      .map(
+        (m) =>
+          `<div class="am-member">${m.role === 'agent' ? `<i style="background:${agentColor(m.id)}"></i>` : '<i class="caller-dot"></i>'}${escapeHtml(m.name)}<span>${ROLE_LABEL[m.role]}</span></div>`
+      )
+      .join('');
+  $('#am-seats-open').hidden = user.role !== 'caller';
+  const showBanner = anyOpen && sessionStorage.getItem('inviteBannerDismissed') !== '1';
   $('#invite-banner').hidden = !showBanner;
-  if (invite.role) {
-    $('#ib-role').textContent = ROLE_LABEL[invite.role];
+  if (anyOpen) {
+    $('#ib-role').textContent = `your ${seatsPhrase(invite.open)}`;
     $('#ib-code').textContent = invite.code;
   }
 }
+
+// Change how many Callers and Agents the team has room for. It can grow any time and shrink to who is already in.
+$('#am-seats-open').addEventListener('click', () => {
+  const have = { caller: ME.members.filter((m) => m.role === 'caller').length, agent: ME.members.filter((m) => m.role === 'agent').length };
+  $('#account-menu').hidden = true;
+  $('#modal-body').innerHTML = `
+    <h2>Team size</h2>
+    <p class="hint">How many people your team has room for. Everyone joins with the same invite code. You can't go below the people already in the team (${have.caller} Caller${have.caller === 1 ? '' : 's'}, ${have.agent} Agent${have.agent === 1 ? '' : 's'}).</p>
+    <div id="seat-form" class="auth-seats">
+      <label class="seat-row"><span>Callers</span><input type="range" name="callers" min="${have.caller}" max="${SEAT_LIMITS.caller}" value="${ME.team.seats.caller}" /><output id="seat-callers-out"></output></label>
+      <label class="seat-row"><span>Agents</span><input type="range" name="agents" min="${have.agent}" max="${SEAT_LIMITS.agent}" value="${ME.team.seats.agent}" /><output id="seat-agents-out"></output></label>
+    </div>
+    <div class="mactions"><button id="seat-save" class="primary">Save</button></div>`;
+  $('#modal-overlay').hidden = false;
+  bindSeatSliders($('#seat-form'));
+  $('#seat-save').addEventListener('click', guardClick($('#seat-save'), async () => {
+    try {
+      ME = await api('/api/team/seats', {
+        method: 'PUT',
+        body: JSON.stringify({ callers: Number($('#seat-form [name=callers]').value), agents: Number($('#seat-form [name=agents]').value) }),
+      });
+    } catch (err) {
+      return alert(err.message);
+    }
+    closeModal();
+    renderAccount();
+    showToast('Team size updated');
+  }));
+});
 
 $('#account-btn').addEventListener('click', () => {
   const menu = $('#account-menu');
@@ -2069,9 +2296,17 @@ async function refreshMe() {
     const res = await fetch('/api/auth/me');
     if (res.status === 401) return location.reload();
     if (res.ok) {
+      const before = agentRoster().map((a) => a.id).join();
       ME = await res.json();
       if (!ME.team) return location.reload(); // removed from the team elsewhere
       renderAccount();
+      if (agentRoster().map((a) => a.id).join() !== before) {
+        // An Agent joined or left: the Agent dropdowns, filters and pills all depend on who is in the team.
+        agentFilter = null;
+        loadZoomStatus().catch(() => {});
+        loadGoogleStatus().catch(() => {});
+        if (openInlineForms === 0) refresh();
+      }
     }
   } catch (err) {
     console.error(err);
@@ -2109,6 +2344,7 @@ async function startApp(info) {
       refreshNotifCount();
       refreshMe();
       loadGoogleStatus().catch(() => {});
+      if (currentRole === 'caller') loadZoomStatus().catch(() => {}); // Agents connect Zoom on their own time
     }, 20000);
   }
 }

@@ -27,6 +27,12 @@
     <form id="auth-form" class="form auth-form" novalidate>
       <label data-auth-field="name">Your name <input name="name" autocomplete="name" /></label>
       <label data-auth-field="team_name">Team name <input name="team_name" placeholder="e.g. Arron &amp; Sam" autocomplete="off" /></label>
+      <fieldset data-auth-field="seats" class="auth-seats">
+        <legend>How big is your team?</legend>
+        <label class="seat-row"><span>Callers</span><input type="range" name="callers" min="1" max="5" value="1" /><output id="seat-callers-out">1</output></label>
+        <label class="seat-row"><span>Agents</span><input type="range" name="agents" min="1" max="10" value="1" /><output id="seat-agents-out">1</output></label>
+        <small>Each Agent connects their own Zoom and Google Calendar and sees only their own meetings. Callers see every Agent's and choose which Agent each meeting is with. You can change this later.</small>
+      </fieldset>
       <label data-auth-field="invite_code">Invite code <input name="invite_code" placeholder="ABCD-2345" autocomplete="off" autocapitalize="characters" /></label>
       <fieldset data-auth-field="role" class="auth-roles">
         <legend>I am the</legend>
@@ -92,6 +98,8 @@
             <div class="am-name" id="am-name"></div>
             <div class="am-sub" id="am-email"></div>
             <div class="am-sub">Team: <strong id="am-team"></strong></div>
+            <div id="am-members" class="am-members"></div>
+            <button type="button" id="am-seats-open" class="am-seats-open" hidden>Team size…</button>
             <div id="am-invite" class="am-invite">
               <div id="am-invite-blurb" class="am-sub"></div>
               <div class="am-code-row"><code id="am-invite-code"></code><button type="button" id="am-copy">Copy</button></div>
@@ -137,7 +145,7 @@
     </div>
 
     <div id="invite-banner" class="invite-banner" hidden>
-      <span>Your team is set up. Send your <strong id="ib-role"></strong> this invite code so they can join:</span>
+      <span>Your team is set up. Share this invite code with <strong id="ib-role"></strong> so they can join:</span>
       <code id="ib-code"></code>
       <button type="button" id="ib-copy">Copy</button>
       <button type="button" id="ib-dismiss" class="ib-dismiss" aria-label="Dismiss">×</button>
@@ -168,6 +176,7 @@
                 <button id="cal-next">›</button>
               </div>
             </div>
+            <div id="calendar-agent-filter" class="agent-filter" hidden></div>
             <div id="calendar-legend" class="cal-legend" hidden></div>
             <div id="calendar-grid" class="calendar-grid">Loading…</div>
           </div>
@@ -191,6 +200,7 @@
           </div>
           <button id="meetings-sort" class="meetings-sort">↑ Oldest first</button>
         </div>
+        <div id="meetings-agent-filter" class="agent-filter" hidden></div>
         <div class="meetings-table">
           <div class="meetings-row meetings-head">
             <div class="mt-name">Name</div>
@@ -251,8 +261,9 @@
             <label><span>Schedule a Zoom meeting <span class="hint">(optional, Singapore time)</span></span>
               <input name="scheduled_at" type="datetime-local" />
             </label>
+            <label id="cf-agent-row" hidden>Agent <select name="agent_id" aria-label="Which Agent is the meeting with"></select></label>
             <label id="cf-zoom-row" hidden>Zoom link <input name="zoom_link" placeholder="https://zoom.us/j/…" /></label>
-            <div id="cf-zoom-hint" class="hint" hidden>A Zoom meeting is created automatically on the agent's connected account.</div>
+            <div id="cf-zoom-hint" class="hint" hidden>A Zoom meeting is created automatically on the chosen Agent's connected account.</div>
             <label>Notes <textarea name="notes" rows="2"></textarea></label>
             <button type="submit" id="cf-submit">Add contact</button>
           </form>
@@ -282,7 +293,7 @@
             <table id="months-table" class="months-table"></table>
           </div>
         </div>
-        <p class="hint">Each number is counted in the month it happened: an interview is fixed when it is booked, attended when an outcome is logged, and a reschedule when the meeting is moved. Interviews booked directly in Zoom are counted the first time this app sees them, so a meeting that came and went while nobody had the app open may be missed.</p>
+        <p class="hint">These are your own interviews only. Each is counted in the month the interview takes place: fixed, attended (as you mark it), and rescheduled when you flag it. Interviews booked directly in Zoom are counted the first time this app sees them, so a meeting that came and went while nobody had the app open may be missed.</p>
       </section>
     </main>
   </div>

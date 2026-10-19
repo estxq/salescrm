@@ -1,7 +1,7 @@
 // Zoom must end up with the exact instant the CRM has. This fakes Zoom's API and
 // checks a correct booking passes, and one Zoom stores at a different time is refused.
-import { withTeam } from '../lib/context.js';
-import { setRaw, delRaw, teamKey } from '../lib/db.js';
+import { withTeam, withAgent } from '../lib/context.js';
+import { setRaw, delRaw, agentKey } from '../lib/db.js';
 import * as zoom from '../lib/zoom.js';
 
 let bad = 0;
@@ -34,8 +34,8 @@ globalThis.fetch = async (url, o = {}) => {
 };
 
 // A throwaway team id, removed at the end, so no real dev data is touched.
-await withTeam(987654, async () => {
-  await setRaw(teamKey('zoom_account'), { access_token: 'x', refresh_token: 'y', expires_at: Date.now() + 3600e3 });
+await withTeam(987654, () => withAgent(1, async () => {
+  await setRaw(agentKey('zoom_account'), { access_token: 'x', refresh_token: 'y', expires_at: Date.now() + 3600e3 });
   const at = '2026-09-25T05:00:00.000Z';
   const m = await zoom.createMeeting({ topic: 't', startTime: at });
   check('create ok', m.id === 1);
@@ -56,6 +56,6 @@ await withTeam(987654, async () => {
   check('update with Zoom 2h off is refused', !!err && /instead of/.test(err.message), String(err));
   err = null; try { await zoom.createMeeting({ topic: 't', startTime: at }); } catch (e) { err = e; }
   check('create with Zoom 2h off is refused and cleaned up', !!err && deleted.length === 1, String(err));
-  await delRaw(teamKey('zoom_account'));
-});
+  await delRaw(agentKey('zoom_account'));
+}));
 process.exit(bad ? 1 : 0);

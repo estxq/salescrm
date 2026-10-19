@@ -14,7 +14,7 @@ globalThis.fetch = async (url, o = {}) => {
   return j({ items: Object.values(events).map((e) => ({ id: e.id, summary: e.summary, description: e.description, start: e.start, end: e.end })).concat([{ id: 'personal1', summary: 'Dentist', start: { dateTime: '2026-10-20T09:00:00+08:00' }, end: { dateTime: '2026-10-20T10:00:00+08:00' } }]) });
 };
 await import('./server.js');
-const { withTeam } = await import('./lib/context.js'); const { setRaw, getRaw, teamKey } = await import('./lib/db.js');
+const { withTeam, withAgent } = await import('./lib/context.js'); const { setRaw, getRaw, teamKey, agentKey } = await import('./lib/db.js');
 const B = 'http://localhost:3807';
 const mk = () => { const jar = {}; return async (p, m = 'GET', b) => { const r = await fetch(B + p, { method: m, headers: { 'content-type': 'application/json', cookie: Object.entries(jar).map(([k, v]) => k + '=' + v).join('; ') }, body: b ? JSON.stringify(b) : undefined }); for (const c of r.headers.getSetCookie?.() || []) { const [kv] = c.split(';'); const i = kv.indexOf('='); jar[kv.slice(0, i)] = kv.slice(i + 1); } const t = await r.text(); try { return { s: r.status, j: JSON.parse(t) }; } catch { return { s: r.status, j: t }; } }; };
 let bad = 0; const chk = (n, c, d = '') => { console.log(c ? 'ok  ' : 'FAIL', n, c ? '' : d); if (!c) bad++; };
@@ -22,7 +22,8 @@ const C = mk(), A = mk();
 const s = await C('/api/auth/signup', 'POST', { mode: 'create', name: 'Cal', email: 'c@x.com', password: 'passw0rd!x', role: 'caller', team_name: 'T' });
 await A('/api/auth/signup', 'POST', { mode: 'join', name: 'Arron', email: 'a@x.com', password: 'passw0rd!x', role: 'agent', invite_code: s.j.invite.code });
 const tid = s.j.team.id; const far = Date.now() + 3600e3;
-const setAcct = (extra) => withTeam(tid, () => setRaw(teamKey('google_account'), { access_token: 't', refresh_token: 'r', expires_at: far, email: 'ag@x.com', ...extra }));
+const agentId = (await A('/api/auth/me')).j.user.id; // the connection is Arron's own
+const setAcct = (extra) => withTeam(tid, () => withAgent(agentId, () => setRaw(agentKey('google_account'), { access_token: 't', refresh_token: 'r', expires_at: far, email: 'ag@x.com', ...extra })));
 const booking = (name, phone, iso, local) => ({ name, phone, created_by: 'Cal', scheduled_at: iso, scheduled_local: local, zoom_link: 'https://zoom.us/j/123456789' });
 // 0) not connected: booking works, no warning
 let r = await C('/api/contacts', 'POST', booking('NoCal', '90000000', '2026-10-15T05:00:00.000Z', '2026-10-15T13:00'));
