@@ -1623,7 +1623,6 @@ async function renderAnalyticsTab() {
   $('#stat-cards').innerHTML =
     card('Interviews fixed', 'Put in the diary', a.fixed, a.previous.fixed) +
     card('Interviews attended', 'Ones you marked as attended', a.attended, a.previous.attended) +
-    card('Not attended', 'Ones you marked as not attended', a.not_attended, a.previous.not_attended) +
     card('Reschedules made', 'Times a meeting was moved to a new time', a.rescheduled, a.previous.rescheduled);
 
   const max = Math.max(1, ...a.outcomes.map((o) => o.count));
@@ -1643,12 +1642,12 @@ async function renderAnalyticsTab() {
   const sum = (key) => a.months.reduce((total, m) => total + m[key], 0);
   $('#months-title').textContent = `Monthly ${selYear}`;
   $('#months-table').innerHTML =
-    `<thead><tr><th>Month</th><th>Fixed</th><th>Attended</th><th>Not attended</th><th>Rescheduled</th><th>Not interested</th><th>Interested</th></tr></thead><tbody>${a.months
+    `<thead><tr><th>Month</th><th>Fixed</th><th>Attended</th><th>Rescheduled</th><th>Not interested</th><th>Interested</th></tr></thead><tbody>${a.months
       .map(
         (m) =>
-          `<tr data-month="${m.month}" class="${m.month === a.month ? 'selected' : ''}"><th>${monthName(m.month, { month: 'long' })}</th>${num(m.fixed)}${num(m.attended)}${num(m.not_attended)}${num(m.rescheduled)}${num(m.not_interested)}${num(m.follow_up)}</tr>`
+          `<tr data-month="${m.month}" class="${m.month === a.month ? 'selected' : ''}"><th>${monthName(m.month, { month: 'long' })}</th>${num(m.fixed)}${num(m.attended)}${num(m.rescheduled)}${num(m.not_interested)}${num(m.follow_up)}</tr>`
       )
-      .join('')}</tbody><tfoot><tr><th>${selYear} total</th>${num(sum('fixed'))}${num(sum('attended'))}${num(sum('not_attended'))}${num(sum('rescheduled'))}${num(sum('not_interested'))}${num(sum('follow_up'))}</tr></tfoot>`;
+      .join('')}</tbody><tfoot><tr><th>${selYear} total</th>${num(sum('fixed'))}${num(sum('attended'))}${num(sum('rescheduled'))}${num(sum('not_interested'))}${num(sum('follow_up'))}</tr></tfoot>`;
   $$('#months-table tbody tr').forEach((row) =>
     row.addEventListener('click', () => {
       analyticsMonth = row.dataset.month;
