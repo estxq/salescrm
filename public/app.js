@@ -611,7 +611,7 @@ async function renderCalendarCard() {
           const isGoogle = m.source === 'google';
           const name = isZoomOnly || isGoogle ? m.title : m.contact?.name || 'Meeting';
           const past = new Date(m.scheduled_at).getTime() <= Date.now();
-          const tip = m.outcome ? ` title="${escapeHtml(m.outcome.label)}"` : '';
+          const tip = m.outcome ? ` title="${escapeHtml(outcomeLabel(m.outcome))}"` : '';
           const cls = ['cal-event', past ? 'past' : '', isGoogle ? 'google' : ''].filter(Boolean).join(' ');
           const time = m.all_day ? '' : `${fmtTime(m.scheduled_at)} `;
           return `<div class="${cls}" data-day="${day}" data-idx="${i}"${tip}>${time}${escapeHtml(name)}</div>`;
@@ -690,6 +690,11 @@ function fmtDateOnly(iso) {
   return sgDate(iso, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+// Outcomes saved before the rename still say "Schedule another meeting" in their stored label,
+// so show the current name by key.
+const OUTCOME_LABELS = { not_interested: 'Not interested', follow_up: 'Interested' };
+const outcomeLabel = (o) => OUTCOME_LABELS[o?.key] || o?.label || '';
+
 // Did the interview happen? The Agent answers per meeting, on any that has already started,
 // and can change it later. The Analytics page counts from this.
 function attendanceSelectHtml(d, cls = 'attend-select') {
@@ -739,7 +744,7 @@ async function renderMeetingsTab() {
       const flags =
         (d.reschedule_requested
           ? `<span class="badge-warning" title="${escapeHtml(d.reschedule_requested.remark)}">Reschedule requested</span>`
-          : '') + (d.outcome ? `<span class="badge-outcome">${escapeHtml(d.outcome.label)}</span>` : '');
+          : '') + (d.outcome ? `<span class="badge-outcome">${escapeHtml(outcomeLabel(d.outcome))}</span>` : '');
       return `
       <div class="meetings-row${isPast ? ' is-past' : ''}" data-id="${d.id}" ${isHistory ? `data-deal-id="${d.deal_id}"` : ''} ${isZoomOnly ? 'data-zoom-only="1"' : ''}>
         <div class="mt-name">${name}${flags ? `<div class="mt-flags">${flags}</div>` : ''}</div>
@@ -1114,13 +1119,13 @@ async function openDealModal(id, opts = {}) {
     ${
       (deal.past_meetings || []).length
         ? `<div class="mnotes" style="margin-top:8px">Earlier meetings: ${deal.past_meetings
-            .map((h) => `${fmtWhen(h.scheduled_at)}${h.outcome ? ` (${escapeHtml(h.outcome.label)})` : ''}`)
+            .map((h) => `${fmtWhen(h.scheduled_at)}${h.outcome ? ` (${escapeHtml(outcomeLabel(h.outcome))})` : ''}`)
             .join(' · ')}</div>`
         : ''
     }
     ${
       deal.outcome
-        ? `<div class="mnotes" style="margin-top:8px">Outcome: <strong>${escapeHtml(deal.outcome.label)}</strong>${
+        ? `<div class="mnotes" style="margin-top:8px">Outcome: <strong>${escapeHtml(outcomeLabel(deal.outcome))}</strong>${
             deal.outcome.note ? ` — ${escapeHtml(deal.outcome.note)}` : ''
           } <span class="hint">(${escapeHtml(deal.outcome.logged_by)}, ${fmtWhen(deal.outcome.logged_at)})</span></div>`
         : ''
@@ -1638,7 +1643,7 @@ async function renderAnalyticsTab() {
   const sum = (key) => a.months.reduce((total, m) => total + m[key], 0);
   $('#months-title').textContent = `Monthly ${selYear}`;
   $('#months-table').innerHTML =
-    `<thead><tr><th>Month</th><th>Fixed</th><th>Attended</th><th>Not attended</th><th>Rescheduled</th><th>Not interested</th><th>Another meeting</th></tr></thead><tbody>${a.months
+    `<thead><tr><th>Month</th><th>Fixed</th><th>Attended</th><th>Not attended</th><th>Rescheduled</th><th>Not interested</th><th>Interested</th></tr></thead><tbody>${a.months
       .map(
         (m) =>
           `<tr data-month="${m.month}" class="${m.month === a.month ? 'selected' : ''}"><th>${monthName(m.month, { month: 'long' })}</th>${num(m.fixed)}${num(m.attended)}${num(m.not_attended)}${num(m.rescheduled)}${num(m.not_interested)}${num(m.follow_up)}</tr>`

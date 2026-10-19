@@ -94,7 +94,7 @@ external chat integration; it's a single shared source of truth.
   new time" — which is what notifies the agent of the change.
 - **Meeting follow-up** (agent only): after a meeting the agent logs how it
   went with just two choices — **Not interested** (→ Lost, and the Zoom meeting
-  is removed) or **Schedule another meeting** (→ back to Contacted, for the
+  is removed) or **Interested** (→ back to Contacted, for the
   caller to book) — plus an optional note. It works the same on Zoom-only
   meetings. Marking Not interested cancels the real Zoom meeting immediately
   and clears the deal's own copy of that link, so nothing in the CRM keeps
@@ -111,7 +111,7 @@ external chat integration; it's a single shared source of truth.
   Logging **Not interested** closes the deal, which also hides the Caller's
   Schedule/Reschedule controls (below) — so a still-open reschedule request
   is cleared at the same moment, rather than left pointing at a control that
-  just disappeared. **Schedule another meeting** keeps the deal open and
+  just disappeared. **Interested** keeps the deal open and
   leaves a genuinely still-open request alone.
 - **Analytics** (agent — his only stats page, no Pipeline), **one month at a
   time**, chosen with **Year** and **Month** dropdowns (it opens on the current
@@ -120,7 +120,7 @@ external chat integration; it's a single shared source of truth.
   chosen month it shows interviews fixed, interviews attended (ones he logged an
   outcome on) and reschedules made — each compared with the month before — plus a
   bar chart of how the meetings he logged turned out: **Not interested** vs
-  **Schedule another meeting**, and a "Monthly" table of every month of that year with a
+  **Interested**, and a "Monthly" table of every month of that year with a
   yearly total (click a row to open that month). Each number is counted in the
   month it happened — booked, outcome logged, moved — using the viewer's
   timezone. The counters come from a small event log (`lib/stats.js`); the chart
