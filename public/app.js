@@ -2111,6 +2111,41 @@ async function startApp(info) {
   }
 }
 
+// A tab left open across an update keeps running the old page, so changes seem not to have happened.
+// Remember which version this page loaded with; when the tab is looked at again (or every few minutes),
+// ask the server, and if it has moved on offer a refresh. Never reloads by itself, so nothing typed is lost.
+let loadedVersion = null;
+async function checkPageVersion() {
+  try {
+    const { version } = await (await fetch('/api/version', { cache: 'no-store' })).json();
+    if (loadedVersion === null) loadedVersion = version;
+    else if (version !== loadedVersion && !$('#update-banner')) {
+      const b = document.createElement('div');
+      b.id = 'update-banner';
+      b.className = 'update-banner';
+      b.innerHTML = 'A new version of Schedule Hub is available. <button type="button" id="update-refresh">Refresh now</button>';
+      document.body.prepend(b);
+      $('#update-refresh').addEventListener('click', () => location.reload());
+    }
+  } catch {
+    // offline or mid-deploy: try again next time
+  }
+}
+checkPageVersion();
+document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && checkPageVersion());
+setInterval(checkPageVersion, 5 * 60 * 1000);
+
+// Whatever page the browser has cached, show the Meetings tabs as Upcoming, Past, All with Upcoming selected.
+(function orderMeetingTabs() {
+  const bar = $$('.meet-subtab')[0]?.parentElement;
+  if (!bar) return;
+  ['upcoming', 'past', 'all'].forEach((when) => {
+    const btn = bar.querySelector(`.meet-subtab[data-when="${when}"]`);
+    if (btn) bar.appendChild(btn);
+  });
+  $$('.meet-subtab').forEach((b) => b.classList.toggle('active', b.dataset.when === meetingsWhen));
+})();
+
 (async function init() {
   const params = new URLSearchParams(location.search);
   const zoomResult = params.get('zoom');

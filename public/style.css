@@ -1003,3 +1003,9 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 /* Attendance in a Meetings row sits flush to the right edge: dropdown as wide as its word, Update under it. */
 .mt-actions .attend-wrap { align-items: flex-end; }
 .mt-actions .attend-update { padding-left: 14px; padding-right: 14px; }
+
+.update-banner { background: #eff6ff; color: #1d4ed8; border-bottom: 1px solid #bfdbfe; padding: 8px 24px; font-size: 13px; text-align: center; }
+.update-banner button { margin-left: 8px; font-size: 12px; border: 1px solid #1d4ed8; background: #1d4ed8; color: #fff; border-radius: 999px; padding: 3px 12px; cursor: pointer; }
+
+/* Attendance in a Meetings row sits to the left of its column: dropdown as wide as its word, Update under it. */
+.mt-actions .attend-wrap { align-items: flex-start; }

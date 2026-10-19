@@ -29,6 +29,7 @@ import {
 import { startSession, endSession, sessionAccountId, setOAuthState, takeOAuthState } from './lib/session.js';
 import { withTeam } from './lib/context.js';
 import crypto from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
 import {
   listContacts,
   getContact,
@@ -85,6 +86,26 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// A fingerprint of the page files this server is serving. A browser tab left open across an update
+// is still running the old page; it compares this with the one it loaded with and offers a refresh.
+// Public on purpose (it reveals nothing but "has the page changed").
+const publicDir = path.join(__dirname, 'public');
+const PAGE_VERSION = crypto
+  .createHash('sha1')
+  .update(
+    readdirSync(publicDir)
+      .filter((f) => /\.(html|js|css)$/.test(f))
+      .sort()
+      .map((f) => readFileSync(path.join(publicDir, f)))
+      .join('\n')
+  )
+  .digest('hex')
+  .slice(0, 12);
+app.get('/api/version', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ version: PAGE_VERSION });
+});
 
 // Best-effort: free up the agent's Zoom account when a deal falls through.
 // Awaited on purpose — on Vercel the function can be frozen the moment the
