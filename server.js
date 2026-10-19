@@ -74,7 +74,7 @@ import {
 } from './lib/notify.js';
 import { listNotifications, markRead, markDone, markAllRead, unreadCount, deleteNotificationsFor, deleteNotification, createNotification, resolveZoomRescheduleRequests, findOpenNotification, reviseNotification } from './lib/notifications.js';
 import { readZoomLog, syncZoomLog, setZoomOutcome, forgetZoomMeeting } from './lib/zoomlog.js';
-import { recordOnce, recordEvent, recordZoomMeetingsSeen, forgetMeeting, backfillDealRefs, monthlyAnalytics, attendanceMap, attendanceStatus, setAttendance } from './lib/stats.js';
+import { recordOnce, recordEvent, recordZoomMeetingsSeen, forgetMeeting, backfillDealRefs, monthlyAnalytics, attendanceMap, attendanceStatus, setAttendance, recordRescheduleRequest, withdrawRescheduleCount, settleRescheduleRequest } from './lib/stats.js';
 import { buildIcs, googleCalendarLink } from './lib/calendar.js';
 import { formatWhen, sgMonthRange, sgNow, TEAM_TZ_PARAM, wallClockProblem } from './lib/tz.js';
 import { checkAndSendReminders } from './lib/reminders.js';
@@ -756,7 +756,9 @@ app.post('/api/deals/:id/reschedule', callerOnly, timeChecked, async (req, res) 
 
   await backfillDealRefs([existing]);
   const deal = await rescheduleMeeting(req.params.id, { scheduled_at, zoom_link, changed_by });
-  await recordEvent('rescheduled', (await getDeal(deal.id)).stat_ref);
+  // Counted when the Agent flagged it; only count here if the Caller moved it unprompted.
+  const dealRef = (await getDeal(deal.id)).stat_ref;
+  if (!(await settleRescheduleRequest(dealRef))) await recordEvent('rescheduled', dealRef, existing.scheduled_at);
   await notifyRescheduleConfirmed(deal, changed_by);
   const calendar_warning = await syncGoogleEvent(deal, await getContact(deal.contact_id), existing.google_event_id);
   const fresh = (await getDeal(deal.id)) || deal;
@@ -772,6 +774,9 @@ app.post('/api/deals/:id/request-reschedule', agentOnly, async (req, res) => {
   if (!before) return res.status(404).json({ error: 'not found' });
   const isEdit = Boolean(before.reschedule_requested);
   const deal = await requestReschedule(req.params.id, { remark, requested_by });
+  // The Agent indicating a reschedule is what counts as "interview rescheduled" in Analytics.
+  if (!before.stat_ref) await backfillDealRefs([before]);
+  await recordRescheduleRequest((await getDeal(deal.id)).stat_ref, before.scheduled_at);
   // Sending again while the caller hasn't acted just changes the wording of the
   // request they already have, instead of piling up a second one.
   const open = isEdit ? await findOpenNotification({ type: 'reschedule_requested', deal_id: deal.id }) : null;
@@ -792,6 +797,7 @@ app.delete('/api/deals/:id/request-reschedule', agentOnly, async (req, res) => {
   if (!before?.reschedule_requested) return res.status(404).json({ error: 'There is no open reschedule request.' });
   const by = req.user.name;
   const deal = await withdrawRescheduleRequest(req.params.id, { by });
+  await withdrawRescheduleCount((await getDeal(deal.id)).stat_ref);
   const open = await findOpenNotification({ type: 'reschedule_requested', deal_id: deal.id });
   if (open) await markDone(open.id);
   const contact = await getContact(deal.contact_id);
@@ -813,6 +819,8 @@ app.post('/api/zoom-meetings/:meetingId/request-reschedule', agentOnly, async (r
   if (!remark) return res.status(400).json({ error: 'remark required' });
   const when = scheduled_at ? formatWhen(scheduled_at) : 'the scheduled time';
   const meta = { zoom_meeting_id: req.params.meetingId, topic: topic || null, scheduled_at: scheduled_at || null, remark };
+  const logged = (await readZoomLog()).find((e) => String(e.zoom_id) === String(req.params.meetingId));
+  await recordRescheduleRequest(`zoom-${req.params.meetingId}`, scheduled_at || logged?.start_time);
   const open = await findOpenNotification({ type: 'reschedule_requested', zoom_meeting_id: req.params.meetingId });
   if (open) {
     await reviseNotification(open.id, {
@@ -836,6 +844,7 @@ app.delete('/api/zoom-meetings/:meetingId/request-reschedule', agentOnly, async 
   const open = await findOpenNotification({ type: 'reschedule_requested', zoom_meeting_id: req.params.meetingId });
   if (!open) return res.status(404).json({ error: 'There is no open reschedule request.' });
   await markDone(open.id);
+  await withdrawRescheduleCount(`zoom-${req.params.meetingId}`);
   const by = req.user.name;
   await createNotification({
     type: 'reschedule_withdrawn',
@@ -900,7 +909,11 @@ app.post('/api/zoom-meetings/:meetingId/reschedule', callerOnly, timeChecked, as
   });
   await resolveZoomRescheduleRequests(req.params.meetingId);
   await recordOnce('fixed', `zoom-${req.params.meetingId}`);
-  await recordEvent('rescheduled', `zoom-${req.params.meetingId}`);
+  const zRef = `zoom-${req.params.meetingId}`;
+  if (!(await settleRescheduleRequest(zRef))) {
+    const logged = (await readZoomLog()).find((e) => String(e.zoom_id) === String(req.params.meetingId));
+    await recordEvent('rescheduled', zRef, logged?.start_time);
+  }
   res.json({ ok: true });
 });
 

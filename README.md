@@ -294,8 +294,11 @@ attended" counts those answers. A meeting with no answer keeps the old rule (an 
 logged, so he went); giving an answer overrides that. **Every Analytics count is dated by the
 interview's own (Zoom) date** — fixed, attended and the Not interested / Interested outcomes
 fall in the month the meeting takes place, never the day it was booked, marked or edited, and
-follow the meeting if it is later moved. (Reschedules are the exception: counted in the month
-the move was made.) Stored in the `attendance` collection, one record per meeting
+follow the meeting if it is later moved. **Interviews rescheduled** counts the moment the Agent
+flags a meeting for rescheduling (his reschedule request), in the month of the interview he
+flagged: editing the request doesn't add another, withdrawing it takes the count back, and the
+Caller then setting the new time doesn't count a second time — but a Caller moving a meeting
+nobody asked to move still counts once. Stored in the `attendance` collection, one record per meeting
 (`lib/stats.js`); `POST /api/attendance`.
 
 **Meetings booked in Schedule Hub are added to the Agent's Google Calendar.** When the

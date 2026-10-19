@@ -82,4 +82,39 @@ await A('/api/attendance', 'POST', { kind: 'deal', deal_id: dA.id, status: 'not_
 await C(`/api/deals/${dA.id}/meeting`, 'DELETE', { changed_by: 'Cal' });
 chk('deleting a meeting drops its not-attended record', (await withTeam(s.j.team.id, () => all('attendance'))).every((x) => !x.ref.includes(String(dA.stat_ref || 'zzz'))));
 // no-op on other team
+// ---- Reschedules count when the Agent flags them ----
+const resched = async (m) => (await an(m)).rescheduled;
+const dR = await book('Resched', '86666666', '2026-10-25T05:00:00Z'); // booked for Oct 25
+const r0 = await resched('2026-10');
+await A(`/api/deals/${dR.id}/request-reschedule`, 'POST', { remark: 'running late', requested_by: 'Arron' });
+chk('Agent flagging a reschedule counts, in the meeting month', (await resched('2026-10')) === r0 + 1, JSON.stringify([r0, await resched('2026-10')]));
+await A(`/api/deals/${dR.id}/request-reschedule`, 'POST', { remark: 'actually very late', requested_by: 'Arron' });
+chk('editing the request does not count again', (await resched('2026-10')) === r0 + 1);
+await C(`/api/deals/${dR.id}/reschedule`, 'POST', { scheduled_at: '2026-11-04T05:00:00Z', scheduled_local: '2026-11-04T13:00', changed_by: 'Cal' });
+// (Analytics can't show months that haven't happened, so count the stored reschedule events directly.)
+const rEvents = async (ref) => (await withTeam(s.j.team.id, () => all('meeting_events'))).filter((e) => e.type === 'rescheduled' && e.ref === ref);
+const refR = (await A(`/api/deals/${dR.id}`)).j.stat_ref;
+chk('the Caller setting the new time does not count a second time', (await resched('2026-10')) === r0 + 1 && (await rEvents(refR)).length === 1, JSON.stringify(await rEvents(refR)));
+// withdraw takes it back
+const dW = await book('Withdraw', '87777777', '2026-10-26T05:00:00Z');
+await A(`/api/deals/${dW.id}/request-reschedule`, 'POST', { remark: 'x', requested_by: 'Arron' });
+const r1 = await resched('2026-10');
+await A(`/api/deals/${dW.id}/request-reschedule`, 'DELETE');
+chk('withdrawing the request takes the count back', (await resched('2026-10')) === r1 - 1, JSON.stringify([r1, await resched('2026-10')]));
+// the Caller moving a meeting nobody asked to move still counts once
+const dU = await book('Unprompted', '88888888', '2026-10-27T05:00:00Z');
+const r2 = await resched('2026-10');
+await C(`/api/deals/${dU.id}/reschedule`, 'POST', { scheduled_at: '2026-10-28T05:00:00Z', scheduled_local: '2026-10-28T13:00', changed_by: 'Cal' });
+chk('a Caller-initiated move still counts once', (await resched('2026-10')) === r2 + 1);
+// a second request on the same meeting after the first was fulfilled counts again
+await A(`/api/deals/${dR.id}/request-reschedule`, 'POST', { remark: 'again', requested_by: 'Arron' });
+chk('a new request later counts as another reschedule', (await rEvents(refR)).length === 2 && (await rEvents(refR)).some((e) => e.at.startsWith('2026-11-04')), JSON.stringify(await rEvents(refR)));
+// Zoom-only meeting
+if (zrow) {
+  const z0 = await resched('2026-10');
+  await A(`/api/zoom-meetings/${String(zrow.id).replace('zoom-', '')}/request-reschedule`, 'POST', { remark: 'z', requested_by: 'Arron', topic: 'Zoom interview', scheduled_at: zrow.scheduled_at });
+  chk('Zoom-only reschedule request counts', (await resched('2026-10')) === z0 + 1);
+  await A(`/api/zoom-meetings/${String(zrow.id).replace('zoom-', '')}/request-reschedule`, 'DELETE', { topic: 'Zoom interview' });
+  chk('...and withdrawing it takes it back', (await resched('2026-10')) === z0);
+}
 console.log(bad ? `${bad} FAILED` : 'ALL PASSED'); process.exit(bad ? 1 : 0);

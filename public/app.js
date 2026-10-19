@@ -1693,7 +1693,7 @@ async function renderAnalyticsTab() {
   $('#stat-cards').innerHTML =
     card('Interviews fixed', 'Put in the diary', a.fixed, a.previous.fixed) +
     card('Interviews attended', 'Ones you marked as attended', a.attended, a.previous.attended) +
-    card('Reschedules made', 'Times a meeting was moved to a new time', a.rescheduled, a.previous.rescheduled);
+    card('Interviews rescheduled', 'Ones you flagged for rescheduling', a.rescheduled, a.previous.rescheduled);
 
   const max = Math.max(1, ...a.outcomes.map((o) => o.count));
   $('#stage-chart').innerHTML = `<div class="stage-bars">${a.outcomes
