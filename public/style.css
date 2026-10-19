@@ -965,3 +965,27 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 
 .attend-select, .attend-select-modal { font: inherit; font-size: 12px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); }
 .attend-select:disabled, .attend-select-modal:disabled { opacity: 0.5; }
+
+/* ---------- Dropdowns inside windows and rows: centred text, evenly spaced chevron ---------- */
+.mactions select, .inline-zoom-action select, .attend-select, .attend-select-modal {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 6px 30px; /* equal both sides so the text sits dead centre and the arrow has its own room */
+  text-align: center;
+  text-align-last: center;
+  border-radius: 999px;
+  cursor: pointer;
+  background-color: var(--card, #fff);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+.mactions select:focus-visible, .attend-select:focus-visible, .attend-select-modal:focus-visible { outline: 2px solid var(--accent, #3b63e8); outline-offset: 1px; }
+
+.toast {
+  position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 12px);
+  background: #1f2937; color: #fff; font-size: 13px; padding: 10px 18px; border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2); opacity: 0; pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease; z-index: 50;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }

@@ -695,6 +695,23 @@ function fmtDateOnly(iso) {
 const OUTCOME_LABELS = { not_interested: 'Not interested', follow_up: 'Interested' };
 const outcomeLabel = (o) => OUTCOME_LABELS[o?.key] || o?.label || '';
 
+// A short confirmation that fades by itself, for actions that otherwise show no sign of having worked.
+let toastTimer;
+function showToast(message) {
+  let el = $('#toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast';
+    el.className = 'toast';
+    el.setAttribute('role', 'status');
+    document.body.appendChild(el);
+  }
+  el.textContent = message;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
 // Did the interview happen? The Agent answers per meeting, on any that has already started,
 // and can change it later. The Analytics page counts from this.
 function attendanceSelectHtml(d, cls = 'attend-select') {
@@ -717,6 +734,7 @@ async function saveAttendance(select, d) {
   try {
     await api('/api/attendance', { method: 'POST', body: JSON.stringify(attendancePayload(d, select.value)) });
     d.attendance = select.value || null;
+    showToast('Attendance saved');
   } catch (err) {
     select.value = previous;
     alert(err.message);
@@ -1198,7 +1216,7 @@ async function openDealModal(id, opts = {}) {
 
     ${
       isAgent && deal.scheduled_at && new Date(deal.scheduled_at).getTime() <= Date.now()
-        ? `<div class="section-head"><h2>Interview attendance</h2><span class="hint">Counts toward Analytics — change it any time</span></div>
+        ? `<div class="section-head"><h2>Interview attendance</h2></div>
     <div class="mactions">${attendanceSelectHtml(deal, 'attend-select-modal')}</div>`
         : ''
     }
@@ -1282,6 +1300,7 @@ async function openDealModal(id, opts = {}) {
 
   if ($('#m-log-followup')) {
     $('#m-log-followup').addEventListener('click', guardClick($('#m-log-followup'), async () => {
+      const updating = Boolean(deal.outcome);
       await api(`/api/deals/${id}/followup`, {
         method: 'POST',
         body: JSON.stringify({
@@ -1290,7 +1309,10 @@ async function openDealModal(id, opts = {}) {
           changed_by: currentUser(),
         }),
       });
-      openDealModal(id); refresh();
+      // Saved: close the window and say so, rather than redrawing it looking unchanged.
+      closeModal();
+      refresh();
+      showToast(updating ? 'Outcome updated' : 'Outcome saved');
     }));
   }
 
