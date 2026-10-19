@@ -666,7 +666,7 @@ async function renderSummaryTab() {
 // =====================================================================
 // MEETINGS (every scheduled deal, independent of pipeline stage)
 // =====================================================================
-let meetingsWhen = 'all';
+let meetingsWhen = 'upcoming'; // opens on what's coming; Past, then All, follow
 let meetingsSortAsc = true;
 
 const AVATAR_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2'];
