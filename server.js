@@ -1395,7 +1395,8 @@ app.get('/api/summary/month', async (req, res) => {
         })
       );
       const name = names.find((a) => a.id === id)?.name || null;
-      google.push(...items.map((e) => ({ ...e, agent_id: id, agent_name: name, id: `${e.id}@${id}` })));
+      // Ids stay as they always were; with several Agents they get the Agent appended so two calendars never clash.
+      google.push(...items.map((e) => ({ ...e, agent_id: id, agent_name: name, id: agentIds.length > 1 ? `${e.id}@${id}` : e.id })));
     }
   }
 
