@@ -1009,3 +1009,10 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 
 /* Attendance in a Meetings row sits to the left of its column: dropdown as wide as its word, Update under it. */
 .mt-actions .attend-wrap { align-items: flex-start; }
+
+/* Attendance in a Meetings row: one fixed-size dropdown (the same for Attended and Not attended) with the words
+   at its left, and the Update button to its right. The last column is widened to fit both. */
+#tab-meetings.agent-attendance .meetings-row { grid-template-columns: 1fr 70px 130px 60px 60px 250px; }
+#tab-meetings.agent-attendance .mt-actions { align-items: flex-start; }
+.mt-actions .attend-wrap { flex-direction: row; align-items: center; gap: 6px; }
+.mt-actions .attend-select { field-sizing: fixed; width: 128px; text-align: left; text-align-last: left; padding: 6px 30px 6px 14px; }

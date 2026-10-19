@@ -708,7 +708,8 @@ function fitSelect(sel) {
   probe.remove();
 }
 function fitSelects(root = document) {
-  root.querySelectorAll('.mactions select, .attend-select, .attend-select-modal, .inline-zoom-action select').forEach((sel) => {
+  // (the dropdown in a Meetings row is deliberately one fixed size; see style.css)
+  root.querySelectorAll('.mactions select, .attend-select-modal, .inline-zoom-action select').forEach((sel) => {
     fitSelect(sel);
     if (!sel.dataset.fit) {
       sel.dataset.fit = '1';
@@ -792,6 +793,7 @@ async function saveAttendance(select, d) {
 }
 
 async function renderMeetingsTab() {
+  $('#tab-meetings').classList.toggle('agent-attendance', currentRole === 'agent'); // room for dropdown + Update side by side
   const deals = await api(`/api/meetings?when=${meetingsWhen}`);
   if (!meetingsSortAsc) deals.reverse();
   const hasZoomOnly = deals.some((d) => d.source === 'zoom');
