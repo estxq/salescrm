@@ -999,3 +999,7 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 
 /* In a Meetings row the column is narrow: dropdown on top, Update underneath. */
 .mt-actions .attend-wrap { flex-direction: column; align-items: stretch; gap: 4px; }
+
+/* Attendance in a Meetings row sits flush to the right edge: dropdown as wide as its word, Update under it. */
+.mt-actions .attend-wrap { align-items: flex-end; }
+.mt-actions .attend-update { padding-left: 14px; padding-right: 14px; }
