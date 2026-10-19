@@ -990,3 +990,12 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
   transition: opacity 0.2s ease, transform 0.2s ease; z-index: 50;
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+.attend-wrap { display: inline-flex; align-items: center; gap: 6px; }
+.attend-update { font-size: 12px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--accent, #3b63e8); background: var(--accent, #3b63e8); color: #fff; cursor: pointer; }
+.attend-update:disabled { background: transparent; color: var(--muted, #9ca3af); border-color: var(--border); cursor: default; }
+.mactions .attend-update-modal { border-radius: 999px; padding: 5px 14px; }
+.mactions .attend-update-modal:disabled { background: transparent; color: var(--muted, #9ca3af); border-color: var(--border); cursor: default; }
+
+/* In a Meetings row the column is narrow: dropdown on top, Update underneath. */
+.mt-actions .attend-wrap { flex-direction: column; align-items: stretch; gap: 4px; }

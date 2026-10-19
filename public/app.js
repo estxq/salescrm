@@ -742,6 +742,29 @@ function attendanceSelectHtml(d, cls = 'attend-select') {
   return `<select class="${cls}" data-id="${d.id}" title="Did this interview happen? Feeds your Analytics.">${opt('', 'Attendance…')}${opt('attended', 'Attended')}${opt('not_attended', 'Not attended')}</select>`;
 }
 
+// The dropdown plus its Update button. Choosing only changes the dropdown; the answer is saved
+// (and "saved" shown) when Update is pressed. The button stays greyed out until something differs.
+function attendanceControlHtml(d, selectCls, btnCls, btnLabel) {
+  return `<span class="attend-wrap">${attendanceSelectHtml(d, selectCls)}<button type="button" class="${btnCls}" data-id="${d.id}" disabled>${btnLabel}</button></span>`;
+}
+
+function bindAttendance(root, selectSel, btnSel, getMeeting, afterSave) {
+  root.querySelectorAll(selectSel).forEach((sel) => {
+    const btn = sel.parentElement.querySelector(btnSel);
+    const d = getMeeting(sel);
+    const sync = () => {
+      btn.disabled = sel.value === (d.attendance || '');
+    };
+    sel.addEventListener('click', (e) => e.stopPropagation());
+    btn.addEventListener('click', (e) => e.stopPropagation());
+    sel.addEventListener('change', sync);
+    btn.addEventListener('click', guardClick(btn, async () => {
+      if (await saveAttendance(sel, d)) afterSave?.();
+      setTimeout(sync, 50); // after guardClick re-enables the button, so a saved answer leaves it greyed out
+    }));
+  });
+}
+
 // What to send for a meeting row/deal: the server works out the rest itself.
 function attendancePayload(d, status) {
   const base = { status: status || 'unset' };
@@ -750,16 +773,19 @@ function attendancePayload(d, status) {
   return { ...base, kind: 'deal', deal_id: d.id };
 }
 
+// Returns true when saved.
 async function saveAttendance(select, d) {
   const previous = d.attendance || '';
   select.disabled = true;
   try {
     await api('/api/attendance', { method: 'POST', body: JSON.stringify(attendancePayload(d, select.value)) });
     d.attendance = select.value || null;
-    showToast('Attendance saved');
+    showToast('Attendance updated');
+    return true;
   } catch (err) {
     select.value = previous;
     alert(err.message);
+    return false;
   } finally {
     select.disabled = false;
   }
@@ -798,7 +824,7 @@ async function renderMeetingsTab() {
         <div class="mt-date"><div>${fmtDateOnly(d.scheduled_at)}</div><div class="mt-time">${fmtTime(d.scheduled_at)}</div></div>
         <div class="mt-attendee">${isZoomOnly ? '' : avatarHtml(d.contact?.name)}</div>
         <div class="mt-owner">${isZoomOnly ? '<span class="hint">Zoom</span>' : avatarHtml(d.owner)}</div>
-        <div class="mt-actions">${currentRole === 'agent' && isPast ? attendanceSelectHtml(d) : ''}${
+        <div class="mt-actions">${currentRole === 'agent' && isPast ? attendanceControlHtml(d, 'attend-select', 'attend-update', 'Update') : ''}${
           isHistory
             ? ''
             : isZoomOnly
@@ -846,18 +872,14 @@ async function renderMeetingsTab() {
         e.target.closest('.inline-resched') ||
         e.target.closest('.mt-whatsapp-btn') ||
         e.target.closest('.crm-delete-btn') ||
-        e.target.closest('.attend-select')
+        e.target.closest('.attend-wrap')
       )
         return;
       openDealModal(row.dataset.dealId || row.dataset.id);
     });
   });
   fitSelects($('#meetings-body'));
-  $$('#meetings-body .attend-select').forEach((sel) => {
-    const d = deals.find((x) => String(x.id) === sel.dataset.id);
-    sel.addEventListener('click', (e) => e.stopPropagation());
-    sel.addEventListener('change', () => saveAttendance(sel, d));
-  });
+  bindAttendance($('#meetings-body'), '.attend-select', '.attend-update', (sel) => deals.find((x) => String(x.id) === sel.dataset.id));
   // Zoom-only meetings (booked directly in Zoom, not via the CRM pipeline)
   // have no deal to attach state to — both actions just raise a
   // notification instead of changing anything server-side for the meeting.
@@ -1240,7 +1262,7 @@ async function openDealModal(id, opts = {}) {
     ${
       isAgent && deal.scheduled_at && new Date(deal.scheduled_at).getTime() <= Date.now()
         ? `<div class="section-head"><h2>Interview attendance</h2></div>
-    <div class="mactions">${attendanceSelectHtml(deal, 'attend-select-modal')}</div>`
+    <div class="mactions">${attendanceControlHtml(deal, 'attend-select-modal', 'attend-update-modal primary', 'Update attendance')}</div>`
         : ''
     }
 
@@ -1262,7 +1284,11 @@ async function openDealModal(id, opts = {}) {
   $('#modal-body').innerHTML = body;
   $('#modal-overlay').hidden = false;
   fitSelects($('#modal-body'));
-  $('.attend-select-modal')?.addEventListener('change', (e) => saveAttendance(e.target, deal));
+  // Saved: close the window (like the outcome) so it's clear it went through; the toast says so.
+  bindAttendance($('#modal-body'), '.attend-select-modal', '.attend-update-modal', () => deal, () => {
+    closeModal();
+    refresh();
+  });
 
   if ($('#m-add-remark')) {
     $('#m-add-remark').addEventListener('click', guardClick($('#m-add-remark'), async () => {
