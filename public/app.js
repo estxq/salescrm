@@ -424,7 +424,9 @@ function renderZoomStatus() {
     // With more than one Zoom app configured, the Agent picks the one their Zoom account can sign in to.
     const apps = ZOOM_STATUS.apps || [];
     el.innerHTML =
-      apps.length > 1
+      apps.length === 0
+        ? '<span class="zoom-pill zoom-off" title="No shared Zoom app is set up for your account. Use Own Zoom app to add your own.">No Zoom app for you yet</span>'
+        : apps.length > 1
         ? `<select id="zoom-app" class="zoom-app-pick" title="Which Zoom app to connect through">${apps
             .map((a) => `<option value="${a.key}">${escapeHtml(a.label)}</option>`)
             .join('')}</select><a id="zoom-connect-link" href="/auth/zoom?app=${apps[0].key}" class="zoom-pill zoom-connect">Connect Zoom</a>`

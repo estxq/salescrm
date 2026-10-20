@@ -336,7 +336,7 @@ Agent sees an "Allow adding meetings" button to approve writing.
 separately per Agent. A Zoom app that isn't published only lets in accounts inside its owner's
 Zoom account, so there are three ways to cover different teams: publish one Zoom app (best
 long-term — one Client ID for everyone); add extra shared apps in the environment
-(`ZOOM_CLIENT_ID_2`… up to `_20`, picked in the Zoom menu); or let a team save its **own**
+(`ZOOM_CLIENT_ID_2`… up to `_20`, picked in the Zoom menu — and with `ZOOM_APP_EMAILS_N` listing the Schedule Hub login emails an app is for, each Agent sees only their own app, not a numbered list); or let a team save its **own**
 Zoom app's Client ID + Secret in the app (Agent → **Own Zoom app**), stored per team with the
 Secret encrypted (AES-256-GCM, key `ZOOM_CRED_KEY`, never sent back to the browser). A
 connection remembers which app made it, so its token refreshes with the same credentials.

@@ -1454,6 +1454,7 @@ app.post('/api/notifications/read-all', async (req, res) => {
 app.get('/auth/zoom', agentOnly, async (req, res) => {
   if (!(await zoom.isConfigured())) return res.status(400).send('Zoom not configured — set ZOOM_CLIENT_ID / ZOOM_CLIENT_SECRET in .env.');
   const choices = await zoom.appChoices();
+  if (!choices.length) return res.status(400).send('There is no Zoom app set up for your account yet — use "Own Zoom app" in the top bar, or ask whoever manages the site.');
   const appKey = String(req.query.app || choices[0].key);
   if (!choices.some((c) => c.key === appKey)) return res.status(400).send('Unknown Zoom app.');
   // The chosen app rides inside the state, which is checked against the cookie on the way back.

@@ -1,0 +1,20 @@
+// Manual (run from a COPY with an empty data/ dir): each Agent is offered only the shared Zoom apps meant for them.
+process.env.PORT = '3822';
+process.env.ZOOM_CLIENT_ID = 'id1'; process.env.ZOOM_CLIENT_SECRET = 's1'; process.env.ZOOM_APP_LABEL = 'Shared for everyone';
+process.env.ZOOM_CLIENT_ID_2 = 'id2'; process.env.ZOOM_CLIENT_SECRET_2 = 's2'; process.env.ZOOM_APP_LABEL_2 = 'Pei Yi'; process.env.ZOOM_APP_EMAILS_2 = 'peiyi@x.com';
+process.env.ZOOM_CLIENT_ID_3 = 'id3'; process.env.ZOOM_CLIENT_SECRET_3 = 's3'; process.env.ZOOM_APP_LABEL_3 = 'Adam'; process.env.ZOOM_APP_EMAILS_3 = 'ADAM@x.com, other@x.com';
+await import('./server.js');
+const B = 'http://localhost:3822';
+const mk = () => { const jar = {}; return async (p, m = 'GET', b) => { const r = await fetch(B + p, { method: m, redirect: 'manual', headers: { 'content-type': 'application/json', cookie: Object.entries(jar).map(([k, v]) => k + '=' + v).join('; ') }, body: b ? JSON.stringify(b) : undefined }); for (const c of r.headers.getSetCookie?.() || []) { const [kv] = c.split(';'); const i = kv.indexOf('='); const v = kv.slice(i + 1); v ? (jar[kv.slice(0, i)] = v) : delete jar[kv.slice(0, i)]; } const t = await r.text(); try { return { s: r.status, j: JSON.parse(t), loc: r.headers.get('location') }; } catch { return { s: r.status, j: t, loc: r.headers.get('location') }; } }; };
+let bad = 0; const chk = (n, c, d = '') => { console.log(c ? 'ok  ' : 'FAIL', n, c ? '' : String(d).slice(0, 300)); if (!c) bad++; };
+const pw = 'passw0rd!x'; const C = mk(), P = mk(), D = mk(), N = mk();
+const s = await C('/api/auth/signup', 'POST', { mode: 'create', name: 'Cal', email: 'cal@x.com', password: pw, role: 'caller', team_name: 'T', callers: 1, agents: 3 });
+const join = (cl, name, email) => cl('/api/auth/signup', 'POST', { mode: 'join', name, email, password: pw, role: 'agent', invite_code: s.j.invite.code });
+await join(P, 'Pei Yi', 'PeiYi@x.com'); await join(D, 'Adam', 'adam@x.com'); await join(N, 'Nobody Special', 'n@x.com');
+const labels = async (cl) => (await cl('/api/zoom/status')).j.apps.map((a) => a.label);
+chk("Pei Yi sees the shared app and her own, not Adam's", JSON.stringify(await labels(P)) === JSON.stringify(['Shared for everyone', 'Pei Yi']), JSON.stringify(await labels(P)));
+chk('Adam sees the shared app and his own (emails are case-insensitive, lists work)', JSON.stringify(await labels(D)) === JSON.stringify(['Shared for everyone', 'Adam']), JSON.stringify(await labels(D)));
+chk('someone with no assigned app sees only the shared one', JSON.stringify(await labels(N)) === JSON.stringify(['Shared for everyone']));
+let r = await P('/auth/zoom?app=3'); chk("Pei Yi can't start a connection through Adam's app", r.s === 400, JSON.stringify(r));
+r = await P('/auth/zoom?app=2'); chk('...but can through her own', r.s === 302 && /client_id=id2/.test(r.loc || ''), JSON.stringify(r));
+console.log(bad ? `${bad} FAILED` : 'ALL PASSED'); process.exit(bad ? 1 : 0);
