@@ -739,7 +739,9 @@ async function renderCalendarCard() {
           const isGoogle = m.source === 'google';
           const name = isZoomOnly || isGoogle ? m.title : m.contact?.name || 'Meeting';
           const past = new Date(m.scheduled_at).getTime() <= Date.now();
-          const tip = m.outcome ? ` title="${escapeHtml(outcomeLabel(m.outcome))}"` : '';
+          // Hovering shows the whole entry, since a long title can be cut to fit the day box.
+          const fullText = `${m.all_day ? '' : `${fmtTime(m.scheduled_at)} `}${name}${m.agent_name && currentRole === 'caller' && multiAgent() ? ` (${m.agent_name})` : ''}${m.outcome ? ` — ${outcomeLabel(m.outcome)}` : ''}`;
+          const tip = ` title="${escapeHtml(fullText)}"`;
           const cls = ['cal-event', past ? 'past' : '', isGoogle ? 'google' : ''].filter(Boolean).join(' ');
           const time = m.all_day ? '' : `${fmtTime(m.scheduled_at)} `;
           // With several Agents, each one's meetings carry their colour down the left edge.
