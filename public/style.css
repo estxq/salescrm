@@ -1044,3 +1044,13 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 .mt-agent { display: flex; width: fit-content; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); margin-top: 3px; }
 .mt-agent i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
 .cal-who { opacity: 0.7; }
+
+/* A busy day scrolls inside its own cell instead of hiding events behind "+N more": cells keep one height,
+   and the list in each can be scrolled (thin bar always shown, so it is clear there is more). */
+.cal-day { height: 118px; min-height: 118px; overflow: hidden; }
+.cal-day-events { flex: 1; min-height: 0; overflow-y: auto; padding-right: 3px; scrollbar-width: thin; scrollbar-color: #c3c9d4 transparent; }
+.cal-day-events::-webkit-scrollbar { width: 6px; }
+.cal-day-events::-webkit-scrollbar-track { background: transparent; }
+.cal-day-events::-webkit-scrollbar-thumb { background: #c3c9d4; border-radius: 999px; }
+.cal-day-events::-webkit-scrollbar-thumb:hover { background: #9aa3b2; }
+.cal-event { flex: none; } /* never squash chips to fit; scroll instead */

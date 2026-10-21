@@ -635,7 +635,7 @@ const sgMonthStart = () => {
 };
 let calendarMonth = sgMonthStart();
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const CAL_MAX_VISIBLE = 3;
+// Every event of a day is listed; a busy day's list scrolls inside its own cell (see .cal-day-events).
 
 function sameDay(a, b) {
   return a.toDateString() === b.toDateString();
@@ -730,8 +730,7 @@ async function renderCalendarCard() {
     for (let day = 1; day <= daysInMonth; day++) {
       const cellDate = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), day);
       const dayMeetings = byDay[day] || [];
-      const visible = dayMeetings.slice(0, CAL_MAX_VISIBLE);
-      const overflow = dayMeetings.length - visible.length;
+      const visible = dayMeetings;
       const classes = ['cal-day'];
       if (sameDay(cellDate, today)) classes.push('today');
       const eventsHtml = visible
@@ -752,9 +751,8 @@ async function renderCalendarCard() {
       cells += `
         <div class="${classes.join(' ')}">
           <span class="cal-day-num">${day}</span>
-          <div class="cal-day-events">
+          <div class="cal-day-events" tabindex="${visible.length > 3 ? 0 : -1}" aria-label="Events on day ${day}">
             ${eventsHtml}
-            ${overflow > 0 ? `<div class="cal-more">+${overflow} more</div>` : ''}
           </div>
         </div>`;
     }
