@@ -1071,3 +1071,9 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
   /* Caller: a slimmer requests column leaves more of the page to the calendar */
   .summary-grid.caller-summary { grid-template-columns: minmax(230px, 270px) minmax(0, 1fr); }
 }
+
+/* The calendar fits the screen: day boxes share the window height left under the page header (so the whole month
+   is visible without scrolling the page), between a minimum that stays readable and a roomy maximum. */
+@media (min-width: 901px) {
+  .cal-day { height: clamp(92px, calc((100vh - 410px) / var(--cal-rows, 5)), 150px); min-height: 0; }
+}

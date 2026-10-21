@@ -758,6 +758,7 @@ async function renderCalendarCard() {
           </div>
         </div>`;
     }
+    grid.style.setProperty('--cal-rows', Math.ceil((leadingBlanks + daysInMonth) / 7)); // 5 or 6 weeks: the day boxes share the screen height
     grid.innerHTML = cells;
     const legend = $('#calendar-legend');
     const showLegend = currentRole === 'caller' && GOOGLE_STATUS.connected && !GOOGLE_STATUS.needs_reconnect;
