@@ -596,6 +596,14 @@ async function zoomMeetingOwner(zoomId, requested) {
   return id;
 }
 
+// For the browser pages Zoom and Google send people back to: if the person signed in here isn't an Agent
+// (say a Caller is logged in on that browser), go home with a plain message instead of showing raw JSON.
+const agentOnlyPage = (service) => (req, res, next) => {
+  if (req.user.role === 'agent') return next();
+  const reason = `You are signed in to Schedule Hub as a Caller, and only an Agent can connect ${service}. Log out, log in as the Agent whose ${service} this is, then click Connect from the top bar.`;
+  res.redirect(`/?${service.toLowerCase().startsWith('zoom') ? 'zoom' : 'google'}=error&reason=${encodeURIComponent(reason)}`);
+};
+
 const callerOnly = requireRole('caller');
 const agentOnly = requireRole('agent');
 
@@ -1451,7 +1459,7 @@ app.post('/api/notifications/read-all', async (req, res) => {
 });
 
 // ---------- Zoom (the agent's own personal account) ----------
-app.get('/auth/zoom', agentOnly, async (req, res) => {
+app.get('/auth/zoom', agentOnlyPage('Zoom'), async (req, res) => {
   if (!(await zoom.isConfigured())) return res.status(400).send('Zoom not configured — set ZOOM_CLIENT_ID / ZOOM_CLIENT_SECRET in .env.');
   const choices = await zoom.appChoices();
   if (!choices.length) return res.status(400).send('There is no Zoom app set up for your account yet — use "Own Zoom app" in the top bar, or ask whoever manages the site.');
@@ -1482,7 +1490,7 @@ function oauthReturnProblem(query, expected) {
   return null;
 }
 
-app.get('/auth/zoom/callback', agentOnly, async (req, res) => {
+app.get('/auth/zoom/callback', agentOnlyPage('Zoom'), async (req, res) => {
   const { code } = req.query;
   const expected = takeOAuthState(req, res);
   const problem = oauthReturnProblem(req.query, expected);
@@ -1544,14 +1552,14 @@ app.post('/api/zoom/disconnect', agentOnly, async (req, res) => {
 });
 
 // ---------- Google Calendar (the agent's own calendar, read-only) ----------
-app.get('/auth/google', agentOnly, (req, res) => {
+app.get('/auth/google', agentOnlyPage('Google Calendar'), (req, res) => {
   if (!gcal.isConfigured()) return res.status(400).send('Google Calendar is not set up — set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET.');
   const state = crypto.randomBytes(16).toString('hex');
   setOAuthState(req, res, state, 'google');
   res.redirect(gcal.buildAuthorizeUrl(state));
 });
 
-app.get('/auth/google/callback', agentOnly, async (req, res) => {
+app.get('/auth/google/callback', agentOnlyPage('Google Calendar'), async (req, res) => {
   const { code } = req.query;
   const expected = takeOAuthState(req, res, 'google');
   const problem = oauthReturnProblem(req.query, expected);
