@@ -37,7 +37,9 @@ for (const tz of ZONES) {
 check('a Singapore device is NOT flagged as different', base.differs === false, base.differs);
 check('a Brisbane device IS flagged, and labelled UTC+10', runs['Australia/Brisbane'].differs === true && runs['Australia/Brisbane'].label === 'UTC+10', runs['Australia/Brisbane'].label);
 check('Kolkata is labelled with its half hour', runs['Asia/Kolkata'].label === 'UTC+5:30', runs['Asia/Kolkata'].label);
-check('Los Angeles is labelled UTC-7 (daylight time in September)', runs['America/Los_Angeles'].label === 'UTC-7', runs['America/Los_Angeles'].label);
+// Los Angeles is UTC-7 in daylight time and UTC-8 otherwise; the label must match whichever applies today.
+const laNow = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', timeZoneName: 'shortOffset' }).match(/GMT(-\d+)/)?.[1];
+check('Los Angeles is labelled with its current UTC offset', runs['America/Los_Angeles'].label === `UTC${laNow}`, `${runs['America/Los_Angeles'].label} vs UTC${laNow}`);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
