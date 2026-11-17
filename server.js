@@ -30,6 +30,7 @@ import {
   firstAgentId,
   setTeamSeats,
   teamMembers,
+  removeCallerFromTeam,
 } from './lib/accounts.js';
 import { startSession, endSession, sessionAccountId, setOAuthState, takeOAuthState } from './lib/session.js';
 import { withTeam, withAgent, currentTeamId } from './lib/context.js';
@@ -673,6 +674,17 @@ app.use('/api/contacts/:id', async (req, res, next) => {
 app.put('/api/team/seats', callerOnly, async (req, res) => {
   const team = await setTeamSeats(await getTeam(req.user.team_id), req.body || {});
   res.json(await sessionInfo(await getAccount(req.user.id), team));
+});
+
+// An Agent can take a Caller out of the team (the Caller keeps their login and can join another team).
+// The team's contacts and meetings stay with the team; the seat opens up for whoever holds the invite code.
+app.post('/api/team/members/:id/remove', agentOnly, async (req, res) => {
+  const removed = await removeCallerFromTeam(req.user, req.params.id);
+  await createNotification({
+    type: 'member_left',
+    message: `${removed.by} removed ${removed.name} (Caller) from the team. Share the invite code to fill the seat.`,
+  });
+  res.json(await sessionInfo(await getAccount(req.user.id), await getTeam(req.user.team_id)));
 });
 
 app.get('/api/leads', async (req, res) => res.json(await fetchLeads()));

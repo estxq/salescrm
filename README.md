@@ -277,6 +277,8 @@ only be authorised by the Zoom account that created it — for other teams'
 agents to connect their own Zoom, the app has to be published on the Zoom
 Marketplace.
 
+**Removing a Caller.** An Agent can take a Caller out of the team from the account menu (team list → **Remove** beside the Caller, after a confirmation). The Caller keeps their login but loses access to the team's data, the seat opens, and the invite code can fill it. Agents can't be removed this way, and only the Agent's own team is affected (`POST /api/team/members/:id/remove`).
+
 **Leaving a team** (account menu → Leave team) removes you from it but keeps
 your login: the team, its data and its invite code stay, your teammates get a
 notification and see the invite code again for the free seat, and you land on a

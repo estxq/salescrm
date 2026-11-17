@@ -2190,9 +2190,24 @@ function renderAccount() {
     ME.members
       .map(
         (m) =>
-          `<div class="am-member">${m.role === 'agent' ? `<i style="background:${agentColor(m.id)}"></i>` : '<i class="caller-dot"></i>'}${escapeHtml(m.name)}<span>${ROLE_LABEL[m.role]}</span></div>`
+          `<div class="am-member">${m.role === 'agent' ? `<i style="background:${agentColor(m.id)}"></i>` : '<i class="caller-dot"></i>'}${escapeHtml(m.name)}<span>${ROLE_LABEL[m.role]}</span>${
+            // An Agent can take a Caller out of the team.
+            user.role === 'agent' && m.role === 'caller' ? `<button type="button" class="am-remove" data-id="${m.id}" data-name="${escapeHtml(m.name)}">Remove</button>` : ''
+          }</div>`
       )
       .join('');
+  $$('#am-members .am-remove').forEach((btn) =>
+    btn.addEventListener('click', guardClick(btn, async () => {
+      if (!confirm(`Remove ${btn.dataset.name} from the team?\n\nThey keep their login but lose access to this team's contacts and meetings. The seat opens up, and anyone with the invite code can take it.`)) return;
+      try {
+        ME = await api(`/api/team/members/${btn.dataset.id}/remove`, { method: 'POST' });
+      } catch (err) {
+        return alert(err.message);
+      }
+      renderAccount();
+      showToast(`${btn.dataset.name} was removed`);
+    }))
+  );
   $('#am-seats-open').hidden = user.role !== 'caller';
   const showBanner = anyOpen && sessionStorage.getItem('inviteBannerDismissed') !== '1';
   $('#invite-banner').hidden = !showBanner;

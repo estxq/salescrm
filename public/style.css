@@ -1077,3 +1077,6 @@ main { max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px; }
 @media (min-width: 901px) {
   .cal-day { height: clamp(92px, calc((100vh - 410px) / var(--cal-rows, 5)), 150px); min-height: 0; }
 }
+
+.am-member .am-remove { margin-left: 8px; font: inherit; font-size: 11px; padding: 2px 9px; border-radius: 999px; border: 1px solid #fca5a5; background: var(--card); color: #b91c1c; cursor: pointer; }
+.am-member .am-remove:hover { background: #fef2f2; }
