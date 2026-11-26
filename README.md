@@ -277,6 +277,12 @@ only be authorised by the Zoom account that created it — for other teams'
 agents to connect their own Zoom, the app has to be published on the Zoom
 Marketplace.
 
+**Password reset by email.** Set `RESEND_API_KEY` and `EMAIL_FROM` (a sender you have verified with Resend) and "Forgot
+password?" emails a 6-digit code (valid 15 minutes) straight to the address on the account, so nobody else is involved and a
+person alone in their team can recover too. The screen words itself to match. If the provider is down or the settings are
+missing, the code falls back to the teammates' bell card. The answer to "Forgot password?" is the same whether or not the
+address is registered, and the code is never sent in the HTTP response.
+
 **Making "forgot password" easier.** The Forgot password screen says plainly to ask a teammate to open their bell and send the
 code; the code shows in the bell as its own card ("Password reset code", the code in large type, a Copy button). Logged-in
 people can change their own password from the account menu (**Change password**, asks for the current one; wrong guesses count

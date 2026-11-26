@@ -2024,14 +2024,24 @@ let teamlessUser = null;
 // is on the team, as a notification, for them to relay out of band. Two
 // phases within the same 'forgot' auth mode: ask for the email, then ask for
 // the code + a new password.
+// When the site can send email (the server says so), the code is emailed straight to the person and nobody else is
+// involved; otherwise it appears in teammates' bells as before.
+let EMAIL_RESET = false;
+fetch('/api/auth/config').then((r) => r.json()).then((c) => (EMAIL_RESET = Boolean(c.email_reset))).catch(() => {});
 const FORGOT_PHASES = {
   request: {
-    blurb: "Enter your email and click Send code. Then ask a teammate to open their bell, find the code, and send it to you. (There's no email: the code appears in your team's notifications.)",
+    blurb: () =>
+      EMAIL_RESET
+        ? "Enter the email you signed up with and click Send code. We'll email you a 6-digit code."
+        : "Enter your email and click Send code. Then ask a teammate to open their bell, find the code, and send it to you. (There's no email: the code appears in your team's notifications.)",
     submit: 'Send code',
     fields: ['email'],
   },
   verify: {
-    blurb: 'Ask a teammate to open their bell, find the "Password reset code", and send it to you. Type it here and choose a new password. The code works for 15 minutes.',
+    blurb: () =>
+      EMAIL_RESET
+        ? "We've emailed you a 6-digit code (check your spam folder too). Type it here and choose a new password. The code works for 15 minutes."
+        : 'Ask a teammate to open their bell, find the "Password reset code", and send it to you. Type it here and choose a new password. The code works for 15 minutes.',
     submit: 'Reset password',
     fields: ['email', 'reset_code', 'new_password', 'resend'],
   },
@@ -2043,7 +2053,8 @@ function renderForgotPhase() {
   $$('#auth-form [data-auth-field]').forEach((el) => {
     el.hidden = !cfg.fields.includes(el.dataset.authField);
   });
-  $('#auth-blurb').textContent = cfg.blurb;
+  $('#auth-code-label').textContent = EMAIL_RESET ? 'Code from your email' : 'Code from your teammate';
+  $('#auth-blurb').textContent = cfg.blurb();
   $('#auth-submit').textContent = cfg.submit;
   $('#auth-error').hidden = true;
 }

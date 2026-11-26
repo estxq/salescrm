@@ -89,6 +89,7 @@ import { formatWhen, sgMonthRange, sgNow, TEAM_TZ_PARAM, wallClockProblem } from
 import { checkAndSendReminders } from './lib/reminders.js';
 import * as zoom from './lib/zoom.js';
 import * as gcal from './lib/gcal.js';
+import { emailConfigured, sendEmail, resetCodeEmail } from './lib/mail.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -419,8 +420,16 @@ app.post('/api/auth/logout', (req, res) => {
 // out of band. Always answers the same generic way — it never says whether the
 // email matched an account, let alone whether that account has a teammate.
 app.post('/api/auth/forgot-password', async (req, res) => {
-  const result = await requestPasswordReset(req.body?.email);
-  if (result.notified) {
+  const emailOn = emailConfigured();
+  const result = await requestPasswordReset(req.body?.email, { emailOn });
+  // Email first: it goes straight to the person, so nobody else needs to be involved. Awaited, because on Vercel
+  // the function can be frozen the moment the response goes out.
+  let emailed = false;
+  if (result.notified && emailOn) {
+    emailed = await sendEmail({ to: result.accountEmail, ...resetCodeEmail({ name: result.accountName, code: result.code, minutes: result.minutes }) });
+  }
+  // The bell card is the backup — used when email is off or didn't go through, and only if a teammate can pass it on.
+  if (result.notified && !emailed && result.hasTeammate && result.teamId) {
     await withTeam(result.teamId, async () => {
       const message = `${result.accountName} forgot their password. Give them this code (valid ${15} minutes): ${formatResetCode(result.code)}`;
       let notif = result.priorNotificationId ? await reviseNotification(result.priorNotificationId, { message }) : null;
@@ -432,9 +441,15 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   }
   res.json({
     ok: true,
-    message: "If that email belongs to an account with a teammate already signed in, they now have a code to pass on to you.",
+    // The same words whatever happened, so this never reveals whether an email is registered.
+    message: emailOn
+      ? 'If that email belongs to an account, we have just sent it a 6-digit code. Check your inbox and spam folder. If nothing arrives in a few minutes, a teammate may be able to find the code in their bell.'
+      : "If that email belongs to an account with a teammate already signed in, they now have a code to pass on to you.",
   });
 });
+
+// What the login screen needs to know to word the Forgot password steps correctly. Public, and reveals nothing private.
+app.get('/api/auth/config', (req, res) => res.json({ email_reset: emailConfigured() }));
 
 // Forgot password, step 2: the code plus a new password.
 app.post('/api/auth/reset-password', async (req, res) => {
