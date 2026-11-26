@@ -31,6 +31,7 @@ import {
   setTeamSeats,
   teamMembers,
   removeCallerFromTeam,
+  changePassword,
 } from './lib/accounts.js';
 import { startSession, endSession, sessionAccountId, setOAuthState, takeOAuthState } from './lib/session.js';
 import { withTeam, withAgent, currentTeamId } from './lib/context.js';
@@ -496,6 +497,13 @@ app.post('/api/auth/leave', async (req, res) => {
     })
   );
   res.json(await sessionInfo(await getAccount(account.id), null));
+});
+
+// Change your own password (asks for the current one).
+app.post('/api/auth/change-password', async (req, res) => {
+  const account = await sessionAccount(req, res);
+  await changePassword(account, req.body?.current_password, req.body?.new_password);
+  res.json({ ok: true });
 });
 
 // Delete the login itself (asks for the password again).

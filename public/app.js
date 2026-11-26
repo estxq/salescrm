@@ -486,20 +486,37 @@ async function renderNotifDropdown() {
   el.innerHTML = notifs
     .slice((notifPage - 1) * NOTIF_PAGE_SIZE, notifPage * NOTIF_PAGE_SIZE)
     .map(
-      (n) => `
-      <div class="notif-item ${n.read_at ? '' : 'unread'}${n.done_at ? ' is-old' : ''}${n.from_role ? ` from-${n.from_role}` : ''}" data-id="${n.id}" data-deal="${n.deal_id || ''}" data-type="${n.type}">
-        ${n.from_name ? `<span class="n-from">From ${n.from_name}</span>` : ''}
-        <div class="n-msg">${n.message}</div>
+      (n) => {
+        // A teammate's password reset code gets its own card: a clear title, the code big, and a Copy button.
+        const resetCode = n.type === 'password_reset' ? (n.message.match(/(\d{3} \d{3})/) || [])[1] : null;
+        const who = resetCode ? (n.message.match(/^(.*?) forgot their password/) || [])[1] : null;
+        return `
+      <div class="notif-item ${n.read_at ? '' : 'unread'}${n.done_at ? ' is-old' : ''}${n.from_role ? ` from-${n.from_role}` : ''}${resetCode ? ' is-reset' : ''}" data-id="${n.id}" data-deal="${n.deal_id || ''}" data-type="${n.type}">
+        ${
+          resetCode
+            ? `<div class="n-reset-title">🔑 Password reset code</div>
+        <div class="n-msg">${escapeHtml(who || 'A teammate')} can't log in. Send them this code — it works for 15 minutes:</div>
+        <div class="n-reset-code"><code>${resetCode}</code><button type="button" class="n-copy" data-code="${resetCode}">Copy</button></div>`
+            : `${n.from_name ? `<span class="n-from">From ${escapeHtml(n.from_name)}</span>` : ''}
+        <div class="n-msg">${escapeHtml(n.message)}</div>`
+        }
         <div class="n-row-bottom">
           <div class="n-when">${fmtWhen(n.created_at)}</div>
           ${n.done_at ? '<span class="n-done-label">Done</span>' : `<button class="notif-done-btn" data-id="${n.id}">Mark as done</button>`}
         </div>
-      </div>`
+      </div>`;
+      }
     )
     .join('');
+  $$('#notif-list .n-copy').forEach((btn) =>
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      copyText(btn.dataset.code, btn);
+    })
+  );
   $$('#notif-list .notif-item').forEach((item) => {
     item.addEventListener('click', guardClick(item, async (e) => {
-      if (e.target.closest('.notif-done-btn')) return;
+      if (e.target.closest('.notif-done-btn') || e.target.closest('.n-copy')) return;
       await api(`/api/notifications/${item.dataset.id}/read`, { method: 'POST' });
       $('#notif-dropdown').hidden = true;
       refreshNotifCount();
@@ -2009,12 +2026,12 @@ let teamlessUser = null;
 // the code + a new password.
 const FORGOT_PHASES = {
   request: {
-    blurb: "Enter your email. If someone else on your team is signed in, they'll get a code in their notifications to pass on to you.",
+    blurb: "Enter your email and click Send code. Then ask a teammate to open their bell, find the code, and send it to you. (There's no email: the code appears in your team's notifications.)",
     submit: 'Send code',
     fields: ['email'],
   },
   verify: {
-    blurb: 'Ask your teammate for the code sitting in their notifications, then choose a new password.',
+    blurb: 'Ask a teammate to open their bell, find the "Password reset code", and send it to you. Type it here and choose a new password. The code works for 15 minutes.',
     submit: 'Reset password',
     fields: ['email', 'reset_code', 'new_password', 'resend'],
   },
@@ -2305,6 +2322,41 @@ $('#ib-dismiss').addEventListener('click', () => {
   sessionStorage.setItem('inviteBannerDismissed', '1');
   $('#invite-banner').hidden = true;
 });
+// Change your own password (asks for the current one first).
+$('#am-pw-open').addEventListener('click', () => {
+  $('#am-pw-open').hidden = true;
+  $('#am-pw-form').hidden = false;
+  $('#am-pw-current').focus();
+});
+function closePasswordForm() {
+  $('#am-pw-form').hidden = true;
+  $('#am-pw-open').hidden = false;
+  $('#am-pw-current').value = '';
+  $('#am-pw-new').value = '';
+  $('#am-pw-error').hidden = true;
+}
+$('#am-pw-cancel').addEventListener('click', closePasswordForm);
+$('#am-pw-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errorEl = $('#am-pw-error');
+  errorEl.hidden = true;
+  const save = e.target.querySelector('.am-pw-confirm');
+  save.disabled = true;
+  try {
+    await api('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ current_password: $('#am-pw-current').value, new_password: $('#am-pw-new').value }),
+    });
+    closePasswordForm();
+    showToast('Password changed');
+  } catch (err) {
+    errorEl.textContent = [400, 403, 429].includes(err.status) ? err.message : 'Something went wrong — try again.';
+    errorEl.hidden = false;
+  } finally {
+    save.disabled = false;
+  }
+});
+
 // Leaving the team: keeps the login, drops the seat. Reloading lands on the
 // "pick a team" screen.
 $('#am-leave-open').addEventListener('click', () => {

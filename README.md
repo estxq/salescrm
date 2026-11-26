@@ -277,6 +277,11 @@ only be authorised by the Zoom account that created it — for other teams'
 agents to connect their own Zoom, the app has to be published on the Zoom
 Marketplace.
 
+**Making "forgot password" easier.** The Forgot password screen says plainly to ask a teammate to open their bell and send the
+code; the code shows in the bell as its own card ("Password reset code", the code in large type, a Copy button). Logged-in
+people can change their own password from the account menu (**Change password**, asks for the current one; wrong guesses count
+toward the same 15-minute lockout as logging in). There is still no email, so a person alone in their team can't get a code.
+
 **Notes and remarks reach the Agent.** The notes typed on the new-contact form and the remarks a Caller leaves on a meeting
 show on the Agent's contact (Contacts tab) and in the meeting window; either role can edit a contact's notes later
 (Contacts → Edit contact info). With several Agents every contact is given to one (the Agent dropdown is required),

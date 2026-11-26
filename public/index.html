@@ -105,6 +105,16 @@
               <div class="am-code-row"><code id="am-invite-code"></code><button type="button" id="am-copy">Copy</button></div>
             </div>
             <button type="button" id="logout-btn" class="am-logout">Log out</button>
+            <button type="button" id="am-pw-open" class="am-delete-open am-pw-open">Change password</button>
+            <form id="am-pw-form" class="am-delete-form" hidden>
+              <input id="am-pw-current" type="password" placeholder="Current password" autocomplete="current-password" />
+              <input id="am-pw-new" type="password" placeholder="New password (8+ characters)" autocomplete="new-password" />
+              <div id="am-pw-error" class="am-delete-error" hidden></div>
+              <div class="am-delete-actions">
+                <button type="submit" class="am-pw-confirm">Save password</button>
+                <button type="button" id="am-pw-cancel">Cancel</button>
+              </div>
+            </form>
             <button type="button" id="am-leave-open" class="am-delete-open am-leave-open">Leave team</button>
             <form id="am-leave-form" class="am-delete-form" hidden>
               <div class="am-sub">You'll be taken out of this team. Its contacts, meetings and Zoom connection stay with the team, and you can join or start another team afterwards.</div>
