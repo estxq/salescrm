@@ -1301,10 +1301,22 @@ async function openDealModal(id, opts = {}) {
   // way to flag a reschedule, and leave calling/scheduling/emailing to
   // the caller, who owns those.
   const isAgent = currentRole === 'agent';
+  // Remarks left on this meeting, newest first (the server returns the deal's activity log).
+  const dealRemarks = (deal.activities || []).filter(
+    (a) => a.type === 'note' && (a.meta?.remark || !/ deleted the meeting\.$| set deal value to /.test(a.summary || ''))
+  );
 
   const body = `
     <h2>${contact.name || ''}</h2>
     <div class="mnotes">${contact.phone || ''} ${contact.email ? '· ' + contact.email : ''}</div>
+    ${contact.notes ? `<div class="mnotes c-notes"><span class="c-label">Notes</span> ${escapeHtml(contact.notes)}</div>` : ''}
+    ${
+      dealRemarks.length
+        ? `<div class="c-remarks"><div class="c-label">Remarks</div>${dealRemarks
+            .map((r) => `<div class="c-remark"><span class="c-label">${escapeHtml(r.made_by)} · ${fmtWhen(r.at)}</span> ${escapeHtml(r.summary)}</div>`)
+            .join('')}</div>`
+        : ''
+    }
     ${deal.zoom_link ? `<div class="mnotes" style="margin-top:6px">Zoom link: <a href="${deal.zoom_link}" target="_blank" rel="noopener">${deal.zoom_link}</a></div>` : ''}
     ${
       opts.justBooked
@@ -1549,8 +1561,39 @@ async function renderContactsTab(q) {
     card.innerHTML = `
       <strong>${c.name}</strong>${c.duplicate_phone ? '<span class="dup-tag">Duplicate number</span>' : ''}
       <div class="mnotes">${[c.phone, c.email].filter(Boolean).join(' · ') || '<em>no phone/email on file</em>'}</div>
-      <div class="mnotes">${c.notes || ''}</div>
+      ${c.notes ? `<div class="mnotes c-notes"><span class="c-label">Notes</span> ${escapeHtml(c.notes)}</div>` : ''}
+      ${
+        (c.remarks || []).length
+          ? `<div class="c-remarks">${c.remarks
+              .map((r) => `<div class="c-remark"><span class="c-label">${escapeHtml(r.by)} · ${fmtWhen(r.at)}</span> ${escapeHtml(r.text)}</div>`)
+              .join('')}</div>`
+          : ''
+      }
+      ${
+        currentRole === 'caller' && multiAgent()
+          ? c.agent_id
+            ? `<div class="mt-agent" style="--c:${agentColor(c.agent_id)}"><i></i>With ${escapeHtml(c.agent_name || 'an Agent')}</div>`
+            : `<div class="c-unassigned">Not given to an Agent yet, so no Agent can see this contact.
+                ${c.deal_id ? `<select class="c-assign" aria-label="Give this contact to an Agent"><option value="">Give to an Agent…</option>${agentRoster().map((a) => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('')}</select>` : ''}</div>`
+          : ''
+      }
     `;
+    const assignSel = card.querySelector('.c-assign');
+    if (assignSel) {
+      assignSel.addEventListener('change', async () => {
+        if (!assignSel.value) return;
+        assignSel.disabled = true;
+        try {
+          await api(`/api/deals/${c.deal_id}/assign`, { method: 'POST', body: JSON.stringify({ agent_id: Number(assignSel.value) }) });
+          showToast(`Given to ${agentNameOf(Number(assignSel.value))}`);
+          renderContactsTab($('#contact-search').value);
+        } catch (err) {
+          assignSel.disabled = false;
+          assignSel.value = '';
+          alert(err.message);
+        }
+      });
+    }
     const actions = document.createElement('div');
     actions.className = 'mactions';
     const editBtn = document.createElement('button');
@@ -1562,6 +1605,7 @@ async function renderContactsTab(q) {
       form.innerHTML = `
         <input class="ie-phone" placeholder="Phone" value="${c.phone || ''}" />
         <input class="ie-email" placeholder="Email" value="${c.email || ''}" />
+        <input class="ie-notes" placeholder="Notes" value="${escapeHtml(c.notes || '')}" style="flex:1" />
         <button class="ie-save primary">Save</button>
         <button class="ie-cancel">Cancel</button>
         <button class="ie-delete danger">Delete contact</button>
@@ -1580,6 +1624,7 @@ async function renderContactsTab(q) {
             body: JSON.stringify({
               phone: form.querySelector('.ie-phone').value,
               email: form.querySelector('.ie-email').value,
+              notes: form.querySelector('.ie-notes').value,
             }),
           });
         } catch (err) {
@@ -1744,7 +1789,8 @@ $('#contact-form').addEventListener('submit', async (e) => {
   const when = form.scheduled_at.value;
   const zoomLink = form.zoom_link.value.trim();
   const agentId = contactFormAgent();
-  if (when && multiAgent() && !agentId) return alert('Choose which Agent this meeting is with.');
+  // With several Agents every contact goes to one, meeting or not: an Agent only sees contacts that are with them.
+  if (multiAgent() && !agentId) return alert('Choose which Agent this contact is with.');
   if (when && !zoomConnectedFor(agentId || null) && !zoomLink) {
     const who = agentId ? agentNameOf(Number(agentId)) : null;
     return alert(who ? `${who} has not connected Zoom, so a meeting can't be created on their account. Paste a Zoom link, or ask ${who} to connect Zoom.` : 'Paste a Zoom link for this meeting (Zoom is not connected to create one automatically).');

@@ -277,6 +277,13 @@ only be authorised by the Zoom account that created it — for other teams'
 agents to connect their own Zoom, the app has to be published on the Zoom
 Marketplace.
 
+**Notes and remarks reach the Agent.** The notes typed on the new-contact form and the remarks a Caller leaves on a meeting
+show on the Agent's contact (Contacts tab) and in the meeting window; either role can edit a contact's notes later
+(Contacts → Edit contact info). With several Agents every contact is given to one (the Agent dropdown is required),
+because an Agent only sees contacts that are with them; a contact that somehow has none shows a yellow "Not given to an
+Agent yet" box to the Caller with a **Give to an Agent** dropdown. The password-reset code from "Forgot password?" goes to
+the whole team (other Agents included), not only the other role.
+
 **Removing a Caller.** An Agent can take a Caller out of the team from the account menu (team list → **Remove** beside the Caller, after a confirmation). The Caller keeps their login but loses access to the team's data, the seat opens, and the invite code can fill it. Agents can't be removed this way, and only the Agent's own team is affected (`POST /api/team/members/:id/remove`).
 
 **Leaving a team** (account menu → Leave team) removes you from it but keeps

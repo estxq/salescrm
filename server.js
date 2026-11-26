@@ -59,6 +59,7 @@ import {
   scheduleMeeting,
   cancelMeeting,
   setGoogleEvent,
+  setDealAgent,
   rescheduleMeeting,
   requestReschedule,
   logFollowUp,
@@ -339,7 +340,7 @@ async function resolveBookingAgent(requested, deal) {
   if (current != null) return current;
   if (agents.length === 1) return agents[0].id;
   if (agents.length === 0) return null;
-  throw Object.assign(new Error('Choose which Agent this meeting is with.'), { status: 400 });
+  throw Object.assign(new Error('Choose which Agent this is with.'), { status: 400 });
 }
 
 async function bookMeeting(deal, contact, { scheduled_at, zoom_link, changed_by, agent_id }) {
@@ -422,7 +423,9 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     await withTeam(result.teamId, async () => {
       const message = `${result.accountName} forgot their password. Give them this code (valid ${15} minutes): ${formatResetCode(result.code)}`;
       let notif = result.priorNotificationId ? await reviseNotification(result.priorNotificationId, { message }) : null;
-      if (!notif) notif = await createNotification({ type: 'password_reset', message, from_name: result.accountName });
+      // To the whole team: the person locked out may be an Agent, and the teammate who can pass the code on
+      // may be another Agent as well as a Caller.
+      if (!notif) notif = await createNotification({ type: 'password_reset', message, from_name: result.accountName, everyone: true });
       await setResetNotificationId(result.accountId, notif.id);
     });
   }
@@ -709,11 +712,39 @@ app.post('/api/leads/import', callerOnly, async (req, res) => {
 });
 
 // ---------- Contacts ----------
+// A remark is a note someone wrote on a meeting. Older remarks were saved without a marker, so anything logged as a
+// note that isn't one of the system's own ("deleted the meeting", "set deal value") counts as one.
+const isRemark = (a) => a.type === 'note' && (a.meta?.remark || !/ deleted the meeting\.$| set deal value to /.test(a.summary || ''));
+
 app.get('/api/contacts', async (req, res) => {
-  const contacts = await listContacts({ q: req.query.q });
-  if (!isAgent(req)) return res.json(contacts);
-  const mine = await contactIdsOf(req);
-  res.json(contacts.filter((c) => mine.has(c.id)));
+  let contacts = await listContacts({ q: req.query.q });
+  if (isAgent(req)) {
+    const mine = await contactIdsOf(req);
+    contacts = contacts.filter((c) => mine.has(c.id));
+  }
+  // Each contact shows the notes typed on it, the remarks left on its meetings, and (for Callers) which Agent it is with.
+  const visibleDeals = await dealsVisibleTo(req, await listDeals());
+  const agents = await roster();
+  const remarks = new Map();
+  for (const a of await listActivities()) {
+    if (a.contact_id == null || !isRemark(a)) continue;
+    if (!remarks.has(a.contact_id)) remarks.set(a.contact_id, []);
+    remarks.get(a.contact_id).push({ text: a.summary, by: a.made_by, at: a.at });
+  }
+  const out = [];
+  for (const c of contacts) {
+    const deal = visibleDeals.filter((d) => d.contact_id === c.id)[0]; // newest first
+    const agentId = deal ? await agentOfDeal(deal) : null;
+    out.push({
+      ...c,
+      remarks: (remarks.get(c.id) || []).slice(0, 5),
+      deal_id: deal?.id ?? null,
+      has_meeting: Boolean(deal?.scheduled_at),
+      agent_id: agentId,
+      agent_name: agents.find((a) => a.id === agentId)?.name || null,
+    });
+  }
+  res.json(out);
 });
 
 // Lets the form warn about a duplicate number while it's still being typed.
@@ -746,7 +777,9 @@ app.post('/api/contacts', callerOnly, timeChecked, async (req, res) => {
   // Validate the Agent before saving anything, so a wrong choice never leaves a half-made contact behind.
   let chosenAgent = null;
   try {
-    chosenAgent = scheduled_at ? await resolveBookingAgent(agent_id, null) : agent_id != null && agent_id !== '' ? await resolveBookingAgent(agent_id, null) : await soleAgentId();
+    // With several Agents a contact must be given to one, meeting or not — an Agent only sees contacts that are
+    // with them, so one with no Agent would be invisible to every Agent.
+    chosenAgent = await resolveBookingAgent(agent_id, null);
   } catch (err) {
     return res.status(err.status || 400).json({ error: err.message });
   }
@@ -975,6 +1008,18 @@ app.post('/api/deals/:id/schedule', callerOnly, timeChecked, async (req, res) =>
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
+});
+
+// Give a contact (one with no meeting booked yet) to an Agent. Once a meeting is booked the Agent is the one it was
+// booked with; to change that, delete the meeting and book it again with the other Agent.
+app.post('/api/deals/:id/assign', callerOnly, async (req, res) => {
+  const deal = await getDeal(req.params.id);
+  if (!deal) return res.status(404).json({ error: 'not found' });
+  if (deal.scheduled_at) return res.status(409).json({ error: 'A meeting is already booked with that Agent. Delete it and book again to change the Agent.' });
+  const id = Number(req.body?.agent_id);
+  if (!(await roster()).some((a) => a.id === id)) return res.status(400).json({ error: 'That Agent is not in this team.' });
+  await setDealAgent(deal.id, id);
+  res.json({ ok: true, agent_id: id });
 });
 
 // Deletes the meeting (cancels the real Zoom meeting first) but keeps the
